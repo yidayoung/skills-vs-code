@@ -347,11 +347,13 @@ export class APIClient {
    * 从远程仓库获取 skill.md 并缓存
    * @param repositoryUrl - Git 仓库 URL
    * @param skillId - 技能唯一标识
+   * @param subSkillName - 子技能名称（用于多技能仓库，如 "postgres"）
    * @returns 返回缓存文件的绝对路径
    */
   async fetchRemoteSkillMd(
     repositoryUrl: string,
-    skillId: string
+    skillId: string,
+    subSkillName?: string
   ): Promise<string> {
     if (!this.skillCache) {
       throw new Error('APIClient not initialized with context');
@@ -361,76 +363,158 @@ export class APIClient {
     const normalizedUrl = normalizeRepoUrl(repositoryUrl);
     console.log(`[APIClient] Normalized URL: ${repositoryUrl} -> ${normalizedUrl}`);
 
-    // Check cache first
-    const cached = await this.skillCache.getCachedSkillMd(skillId);
+    // 构建完整的缓存 key（包含子技能名称）
+    const fullSkillId = subSkillName ? `${skillId}@${subSkillName}` : skillId;
+    const safeSkillId = fullSkillId.replace(/\//g, '-');
+
+    const cached = await this.skillCache.getCachedSkillMd(safeSkillId);
     if (cached) {
-      console.log(`[APIClient] Cache hit for ${skillId}: ${cached}`);
+      console.log(`[APIClient] Cache hit for ${fullSkillId}: ${cached}`);
       return cached;
     }
 
-    console.log(`[APIClient] Cache miss for ${skillId}, fetching from ${normalizedUrl}`);
+    console.log(`[APIClient] Cache miss for ${fullSkillId}, fetching from ${normalizedUrl}`);
 
     // Check if there's already an in-flight request
-    const existing = this.memoryCache.get(skillId);
+    const existing = this.memoryCache.get(fullSkillId);
     if (existing) {
-      console.log(`[APIClient] Using in-flight request for ${skillId}`);
+      console.log(`[APIClient] Using in-flight request for ${fullSkillId}`);
       return existing;
     }
 
     // Create new request
-    const promise = this.fetchWithClone(normalizedUrl, skillId);
-    this.memoryCache.set(skillId, promise);
+    const promise = this.fetchWithClone(normalizedUrl, skillId, subSkillName);
+    this.memoryCache.set(fullSkillId, promise);
 
     try {
       const result = await promise;
       return result;
     } finally {
       // Clean up memory cache after completion
-      this.memoryCache.delete(skillId);
+      this.memoryCache.delete(fullSkillId);
     }
   }
 
   private async fetchWithClone(
     repositoryUrl: string,
-    skillId: string
+    skillId: string,
+    subSkillName?: string
   ): Promise<string> {
-    let tempDir: string | null = null;
+    // 提取仓库名称用于显示
+    const repoName = repositoryUrl.replace(/\.git$/, '').split('/').pop() || skillId;
+    const displayName = subSkillName ? `${subSkillName}` : repoName;
 
-    try {
-      console.log(`[APIClient] Cloning ${repositoryUrl}`);
-      tempDir = await cloneRepo(repositoryUrl);
+    return await vscode.window.withProgress({
+      location: vscode.ProgressLocation.Notification,
+      title: `Loading skill: ${displayName}`,
+      cancellable: false
+    }, async (progress) => {
+      let tempDir: string | null = null;
 
-      console.log(`[APIClient] Looking for SKILL.md in ${tempDir}`);
-      const skills = await discoverSkillsInPath(tempDir);
+      try {
+        progress.report({ increment: 0, message: 'Cloning repository...' });
+        console.log(`[APIClient] Cloning ${repositoryUrl}`);
+        tempDir = await cloneRepo(repositoryUrl);
 
-      if (skills.length === 0) {
-        throw new Error(
-          `No SKILL.md found in repository.\n\n` +
-          `Checked locations:\n` +
-          `- Repository root\n` +
-          `- skills/\n` +
-          `- .agents/skills/\n` +
-          `- .claude/skills/\n\n` +
-          `Please ensure the repository contains a valid SKILL.md file.`
+        progress.report({ increment: 40, message: 'Discovering skills...' });
+        console.log(`[APIClient] Looking for SKILL.md in ${tempDir}`);
+        const skills = await discoverSkillsInPath(tempDir);
+
+        if (skills.length === 0) {
+          throw new Error(
+            `No SKILL.md found in repository.\n\n` +
+            `Checked locations:\n` +
+            `- Repository root\n` +
+            `- skills/\n` +
+            `- .agents/skills/\n` +
+            `- .claude/skills/\n\n` +
+            `Please ensure the repository contains a valid SKILL.md file.`
+          );
+        }
+
+        progress.report({ increment: 20, message: `Found ${skills.length} skill${skills.length > 1 ? 's' : ''}` });
+
+        // 选择正确的技能
+        let selectedSkill = skills[0];
+        let actualSkillId = skillId;
+
+        if (skills.length > 1) {
+          // 多技能仓库：需要根据 subSkillName 或 skillId 选择正确的技能
+          console.log(`[APIClient] Found ${skills.length} skills in repository:`);
+          skills.forEach(s => console.log(`  - ${s.name} at ${s.path.replace(tempDir!, './')}`));
+
+          progress.report({ increment: 10, message: 'Matching skill...' });
+
+          // 优先使用 subSkillName 进行匹配
+          let matchingSkill: typeof skills[0] | undefined;
+
+          if (subSkillName) {
+            console.log(`[APIClient] Looking for sub-skill: ${subSkillName}`);
+            matchingSkill = skills.find(s => {
+              // 匹配技能名称
+              if (s.name === subSkillName) return true;
+              // 匹配路径中的目录名
+              const dirName = s.path.split('/').pop()?.replace(/\/SKILL\.md$/, '');
+              return dirName === subSkillName;
+            });
+          }
+
+          // 如果没有通过 subSkillName 找到，尝试通过 skillId 匹配
+          if (!matchingSkill) {
+            matchingSkill = skills.find(s => {
+              // 从路径中提取技能名称（相对于 tempDir）
+              const relativePath = s.path.replace(tempDir + '/', '').replace(/\/SKILL\.md$/, '');
+              // 检查是否匹配 skillId 中的任何部分
+              return skillId.includes(s.name) || skillId.includes(relativePath.replace(/\//g, '/'));
+            });
+          }
+
+          if (matchingSkill) {
+            selectedSkill = matchingSkill;
+            console.log(`[APIClient] ✓ Selected matching skill: ${selectedSkill.name}`);
+            progress.report({ increment: 10, message: `Selected: ${selectedSkill.name}` });
+          } else {
+            console.log(`[APIClient] ⚠ No exact match found, using first skill: ${selectedSkill.name}`);
+          }
+
+          // 根据选中的技能路径构建新的 skillId
+          const relativePath = selectedSkill.path.replace(tempDir + '/', '').replace(/\/SKILL\.md$/, '');
+          const parsed = parseSource(repositoryUrl);
+          if (parsed.type === 'github' || parsed.type === 'gitlab') {
+            actualSkillId = buildSkillId(parsed, selectedSkill.name);
+            // 添加子路径信息
+            if (relativePath !== 'SKILL.md') {
+              actualSkillId = `${actualSkillId}/${relativePath.replace(/\/SKILL\.md$/, '')}`;
+            }
+            console.log(`[APIClient] Updated skillId: ${skillId} -> ${actualSkillId}`);
+          }
+        }
+
+        console.log(`[APIClient] Found SKILL.md at ${selectedSkill.path}`);
+
+        progress.report({ increment: 15, message: 'Reading skill content...' });
+
+        // Read the content
+        const content = await fs.readFile(selectedSkill.path, 'utf-8');
+
+        progress.report({ increment: 10, message: 'Caching skill...' });
+
+        // 构建完整的缓存 key（包含子技能名称）
+        const fullSkillId = subSkillName ? `${skillId}@${subSkillName}` : actualSkillId;
+        const safeSkillId = fullSkillId.replace(/\//g, '-');
+
+        const cachedPath = await this.skillCache!.cacheSkillMd(
+          safeSkillId,
+          content,
+          repositoryUrl
         );
-      }
 
-      // Use the first skill found
-      const skill = skills[0];
-      console.log(`[APIClient] Found SKILL.md at ${skill.path}`);
+        console.log(`[APIClient] Cached to ${cachedPath}`);
+        console.log(`[APIClient] (skillId: ${fullSkillId} -> safe: ${safeSkillId})`);
 
-      // Read the content
-      const content = await fs.readFile(skill.path, 'utf-8');
+        progress.report({ increment: 5, message: 'Done!' });
 
-      // Cache it
-      const cachedPath = await this.skillCache!.cacheSkillMd(
-        skillId,
-        content,
-        repositoryUrl
-      );
-
-      console.log(`[APIClient] Cached to ${cachedPath}`);
-      return cachedPath;
+        return cachedPath;
 
     } catch (error) {
       // Handle GitCloneError specifically
@@ -464,5 +548,6 @@ export class APIClient {
         await cleanupTempDir(tempDir);
       }
     }
+    });
   }
 }

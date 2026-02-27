@@ -492,8 +492,13 @@ async function handleFetchRemoteSkillMd(
 
 async function handleOpenSkillMd(data: { filePath: string }) {
   try {
-    const doc = await vscode.workspace.openTextDocument(data.filePath);
-    await vscode.window.showTextDocument(doc);
+    const uri = vscode.Uri.file(data.filePath);
+    try {
+      await vscode.commands.executeCommand('markdown.showPreview', uri);
+    } catch {
+      const doc = await vscode.workspace.openTextDocument(uri);
+      await vscode.window.showTextDocument(doc);
+    }
   } catch (error) {
     vscode.window.showErrorMessage(`Failed to open skill.md: ${error}`);
   }

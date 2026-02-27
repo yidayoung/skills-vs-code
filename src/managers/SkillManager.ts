@@ -5,6 +5,8 @@ import { homedir } from 'os';
 import { Skill, InstalledVersion } from '../types';
 import { getSupportedAgents, getAgentSkillsDir, detectInstalledAgents } from '../utils/agents';
 import { parseSkillMd, sanitizeName } from '../utils/skills';
+import { parseSource, buildSkillId, parseSkillId } from '../utils/source-parser';
+import { cloneRepo, cleanupTempDir } from '../utils/git';
 
 const AGENTS_DIR = '.agents';
 const SKILLS_SUBDIR = 'skills';
@@ -137,18 +139,92 @@ export class SkillManager {
   }
 
   /**
-   * Install a skill from a local path or remote repository
+   * Install a skill from various sources
+   * 支持的格式：
+   * - 本地路径: /path/to/skill, ./skill
+   * - GitHub 短名字: owner/repo
+   * - GitHub URL: https://github.com/owner/repo
+   * - GitLab: gitlab.com/owner/repo
+   * - 其他 Git URL
+   *
+   * @param source - 技能来源（本地路径或 Git URL）
+   * @param agents - 目标 agents
+   * @param scope - 安装范围
    */
   async installSkill(
-    skillPath: string,
+    source: string,
     agents: string[],
     scope: 'project' | 'global'
   ): Promise<void> {
     const cwd = this.workspaceRoot || process.cwd();
 
-    console.log(`[SkillManager] Installing skill from: ${skillPath}`);
+    console.log(`[SkillManager] Installing skill from: ${source}`);
     console.log(`[SkillManager] Agents: ${agents.join(', ')}`);
     console.log(`[SkillManager] Scope: ${scope}`);
+
+    // 解析 source
+    const parsedSource = parseSource(source);
+    console.log(`[SkillManager] Parsed source type: ${parsedSource.type}`);
+
+    let skillPath: string;
+
+    // 根据 source 类型获取技能路径
+    if (parsedSource.type === 'local') {
+      // 本地路径
+      skillPath = parsedSource.localPath;
+    } else {
+      // 远程仓库 - 需要克隆
+      const repoUrl = parsedSource.url;
+      console.log(`[SkillManager] Cloning remote repository: ${repoUrl}`);
+
+      let tempDir: string | null = null;
+      try {
+        tempDir = await cloneRepo(repoUrl);
+        console.log(`[SkillManager] Cloned to: ${tempDir}`);
+
+        // 如果有子路径，加上子路径
+        if (parsedSource.type === 'github' && parsedSource.subpath) {
+          skillPath = path.join(tempDir, parsedSource.subpath);
+        } else if (parsedSource.type === 'gitlab' && parsedSource.subpath) {
+          skillPath = path.join(tempDir, parsedSource.subpath);
+        } else {
+          skillPath = tempDir;
+        }
+
+        // 执行安装
+        await this.installFromPath(skillPath, agents, scope, cwd);
+
+        // 清理临时目录
+        if (tempDir) {
+          await cleanupTempDir(tempDir);
+        }
+
+        console.log(`[SkillManager] Installation complete`);
+        return;
+      } catch (error) {
+        // 清理临时目录
+        if (tempDir) {
+          await cleanupTempDir(tempDir).catch(() => {});
+        }
+        throw error;
+      }
+    }
+
+    // 本地安装
+    await this.installFromPath(skillPath, agents, scope, cwd);
+    console.log(`[SkillManager] Installation complete`);
+  }
+
+  /**
+   * 从本地路径安装技能
+   */
+  private async installFromPath(
+    skillPath: string,
+    agents: string[],
+    scope: 'project' | 'global',
+    cwd: string
+  ): Promise<void> {
+    console.log(`[SkillManager] Installing from path: ${skillPath}`);
 
     // Parse the skill to get its metadata
     const skillMdPath = path.join(skillPath, 'SKILL.md');
@@ -235,8 +311,8 @@ export class SkillManager {
         if (selectedSkill) {
           console.log(`[SkillManager] Installing sub-skill: ${selectedSkill.name} from ${selectedSkill.path}`);
 
-          // Recursively call installSkill with the sub-skill path
-          return this.installSkill(selectedSkill.path, agents, scope);
+          // Recursively call installFromPath with the sub-skill path
+          return this.installFromPath(selectedSkill.path, agents, scope, cwd);
         }
       }
 
