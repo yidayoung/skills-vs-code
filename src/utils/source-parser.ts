@@ -20,7 +20,7 @@
  */
 
 import * as path from 'path';
-import { ParsedSource, LocalSource, GitHubSource, GitLabSource, GitSource, DirectUrlSource, WellKnownSource } from './source-types';
+import { ParsedSource, LocalSource, GitHubSource, GitLabSource, DirectUrlSource } from './source-types';
 
 /**
  * 源别名映射

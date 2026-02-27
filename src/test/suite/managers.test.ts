@@ -9,7 +9,7 @@ suite('Manager Tests Suite', () => {
 
   suiteSetup(async () => {
     // Activate extension
-    const extension = vscode.extensions.getExtension('your-publisher-name.skills-vscode');
+    const extension = vscode.extensions.getExtension('yidayoung.agent-skills-manager-pro');
     await extension?.activate();
     context = (global as any).testExtensionContext;
   });

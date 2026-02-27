@@ -35,11 +35,6 @@ export class GitCloneError extends Error {
 export async function cloneRepo(url: string, ref?: string): Promise<string> {
   const tempDir = await fs.mkdtemp(path.join(tmpdir(), 'skills-'));
 
-  console.log(`[Git] Cloning ${url} to ${tempDir}`);
-  if (ref) {
-    console.log(`[Git] Using ref: ${ref}`);
-  }
-
   // Set environment variable to prevent interactive prompts
   process.env.GIT_TERMINAL_PROMPT = '0';
 
@@ -55,7 +50,6 @@ export async function cloneRepo(url: string, ref?: string): Promise<string> {
 
   try {
     await git.clone(url, tempDir, cloneOptions);
-    console.log(`[Git] Clone successful: ${tempDir}`);
     return tempDir;
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
@@ -63,20 +57,16 @@ export async function cloneRepo(url: string, ref?: string): Promise<string> {
 
     // If the error is about branch not found and no ref was specified, try common branch names
     if (!ref && (errorMessage.includes('remote branch') || errorMessage.includes('main') || errorMessage.includes('未发现'))) {
-      console.log(`[Git] Trying fallback branches...`);
 
       // Try common branch names
       const branchesToTry = ['master', 'main', 'develop', 'dev'];
 
       for (const branch of branchesToTry) {
         try {
-          console.log(`[Git] Trying branch: ${branch}`);
           const options = ['--depth', '1', '--branch', branch];
           await git.clone(url, tempDir, options);
-          console.log(`[Git] Clone successful with branch ${branch}: ${tempDir}`);
           return tempDir;
         } catch (branchError) {
-          console.log(`[Git] Branch ${branch} failed, trying next...`);
           // Clean up failed attempt
           await cleanupTempDir(tempDir).catch(() => {});
           continue;
@@ -129,8 +119,6 @@ export async function cloneRepo(url: string, ref?: string): Promise<string> {
  * @param dir - Directory to clean up
  */
 export async function cleanupTempDir(dir: string): Promise<void> {
-  console.log(`[Git] Cleaning up temp directory: ${dir}`);
-
   // Validate that the directory path is within tmpdir to prevent deletion of arbitrary paths
   const normalizedDir = normalize(resolve(dir));
   const normalizedTmpDir = normalize(resolve(tmpdir()));
@@ -140,5 +128,4 @@ export async function cleanupTempDir(dir: string): Promise<void> {
   }
 
   await fs.rm(dir, { recursive: true, force: true });
-  console.log(`[Git] Cleanup complete`);
 }

@@ -2,49 +2,8 @@
  * Type definitions for webview components
  */
 
-// Re-export agent types from extension
-export type SupportedAgent =
-  | 'amp'
-  | 'antigravity'
-  | 'augment'
-  | 'claude-code'
-  | 'openclaw'
-  | 'cline'
-  | 'codebuddy'
-  | 'codex'
-  | 'command-code'
-  | 'continue'
-  | 'cortex'
-  | 'crush'
-  | 'cursor'
-  | 'droid'
-  | 'gemini-cli'
-  | 'github-copilot'
-  | 'goose'
-  | 'junie'
-  | 'iflow-cli'
-  | 'kilo'
-  | 'kimi-cli'
-  | 'kiro-cli'
-  | 'kode'
-  | 'mcpjam'
-  | 'mistral-vibe'
-  | 'mux'
-  | 'opencode'
-  | 'openhands'
-  | 'pi'
-  | 'qoder'
-  | 'qwen-code'
-  | 'replit'
-  | 'roo'
-  | 'trae'
-  | 'trae-cn'
-  | 'universal'
-  | 'windsurf'
-  | 'zencoder'
-  | 'neovate'
-  | 'pochi'
-  | 'adal';
+// Agent ids are resolved at runtime from extension data; keep webview type flexible.
+export type SupportedAgent = string;
 
 export interface AgentInfo {
   id: string;

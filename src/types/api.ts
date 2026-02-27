@@ -71,3 +71,50 @@ export interface CachedSkill {
   /** Content size in bytes */
   size: number;
 }
+
+/**
+ * Generic API skill data from various sources
+ * Used for parsing responses from different marketplace APIs
+ */
+export interface APISkillData {
+  /** Skill identifier */
+  id?: string;
+  /** Full name (GitHub API: owner/repo) */
+  full_name?: string;
+  /** Skill name */
+  name?: string;
+  /** Skill description */
+  description?: string;
+  /** Repository URL or owner/repo format */
+  repository?: string;
+  /** Repository in owner/repo format */
+  repo?: string;
+  /** HTML URL to repository (GitHub API) */
+  html_url?: string;
+  /** Install count */
+  installs?: number;
+  /** Star count */
+  stars?: number;
+  /** Star count (alternative field) */
+  star_count?: number;
+  /** Stargazers count (GitHub API) */
+  stargazers_count?: number;
+  /** Version/commit/tag */
+  version?: string;
+  /** Commit hash */
+  commit?: string;
+  /** Tag name */
+  tag?: string;
+  /** Last updated timestamp */
+  updatedAt?: string;
+  updated_at?: string;
+  last_updated?: string;
+  /** Source field (owner/repo format) */
+  source?: string;
+  /** Multi-skill repository identifier */
+  skillId?: string;
+  /** Direct skill.md URL */
+  skillMdUrl?: string;
+  skill_md_url?: string;
+  readme_url?: string;
+}

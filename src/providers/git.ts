@@ -73,7 +73,7 @@ export class GitProvider implements HostProvider {
       // If URL parsing fails, try to parse git@ format
       const match = repoUrl.match(/@([^:]+):(.+)/);
       if (match) {
-        const host = match[1];
+        const _host = match[1];
         const path = match[2].replace(/\.git$/, '');
         const parts = path.split('/');
         if (parts.length >= 2) {

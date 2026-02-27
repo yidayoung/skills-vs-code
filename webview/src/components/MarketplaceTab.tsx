@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { vscode } from '../vscode';
 import { SkillCard } from './SkillCard';
 import { TabPanel } from './TabContainer';
+import { t } from '../i18n';
 import type { SupportedAgent } from '../types';
 
 interface MarketplaceSkill {
@@ -59,7 +60,7 @@ export const MarketplaceTab: React.FC = () => {
           break;
 
         case 'searchError':
-          setError(message.error || 'Search failed. Please try again.');
+          setError(message.error || t('market.error.default'));
           setLoading(false);
           break;
       }
@@ -85,11 +86,11 @@ export const MarketplaceTab: React.FC = () => {
           <input
             type="text"
             className="search-input"
-            placeholder="Search for skills (e.g., 'git', 'testing', 'debugging')"
+            placeholder={t('market.search.placeholder')}
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             onKeyPress={handleKeyPress}
-            aria-label="Search skills"
+            aria-label={t('market.search.aria')}
           />
           <button
             className="search-button"
@@ -97,7 +98,7 @@ export const MarketplaceTab: React.FC = () => {
             disabled={!searchQuery.trim() || loading}
             aria-label="Search"
           >
-            Search
+            {t('market.search.button')}
           </button>
         </div>
       </div>
@@ -106,7 +107,7 @@ export const MarketplaceTab: React.FC = () => {
       {loading && (
         <div className="loading-container">
           <div className="spinner" />
-          <p>Searching marketplace...</p>
+          <p>{t('market.loading')}</p>
         </div>
       )}
 
@@ -119,7 +120,7 @@ export const MarketplaceTab: React.FC = () => {
             className="action-button secondary"
             onClick={() => setError(null)}
           >
-            Dismiss
+            {t('market.error.dismiss')}
           </button>
         </div>
       )}
@@ -128,10 +129,10 @@ export const MarketplaceTab: React.FC = () => {
       {!hasSearched && !loading && !error && (
         <div className="empty-state">
           <span className="codicon codicon-marketplace" aria-hidden="true" />
-          <h3>Discover Skills</h3>
-          <p>Search the marketplace to find and install skills for your agents.</p>
+          <h3>{t('market.empty.before.title')}</h3>
+          <p>{t('market.empty.before.desc')}</p>
           <div className="suggested-searches">
-            <p>Popular searches:</p>
+            <p>{t('market.empty.before.popular')}</p>
             <div className="suggestion-tags">
               {['git', 'testing', 'debugging', 'api', 'database'].map(term => (
                 <button
@@ -162,8 +163,8 @@ export const MarketplaceTab: React.FC = () => {
       {hasSearched && !loading && !error && skills.length === 0 && (
         <div className="empty-state">
           <span className="codicon codicon-search" aria-hidden="true" />
-          <h3>No Results Found</h3>
-          <p>Try different keywords or check your spelling.</p>
+          <h3>{t('market.empty.none.title')}</h3>
+          <p>{t('market.empty.none.desc')}</p>
         </div>
       )}
 

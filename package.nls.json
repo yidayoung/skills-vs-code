@@ -1,0 +1,18 @@
+{
+  "displayName": "Agent Skills Manager Pro",
+  "description": "Manage agent skills in VS Code. Discover, install, update, and remove skills for AI coding assistants.",
+  "viewsContainerTitle": "Skills",
+  "viewsName": "Agent Skills Manager Pro",
+  "command.category": "Skills",
+  "command.refresh.title": "Refresh",
+  "command.search.title": "Search Marketplace",
+  "command.installFromUri.title": "Install from URL...",
+  "command.clearCache.title": "Clear Cache",
+  "config.title": "Agent Skills Manager Pro",
+  "config.apiUrls.description": "Marketplace API endpoints used for search and trending skill queries.",
+  "config.defaultAgents.description": "Default target agents used when installing skills.",
+  "config.defaultScope.description": "Default installation scope for skills.",
+  "config.cacheMaxSize.description": "Maximum local cache size in MB for downloaded SKILL.md files (default: 50).",
+  "config.cacheExpiryDays.description": "Number of days before cached SKILL.md files expire.",
+  "config.skipInstallPrompts.description": "Skip installation prompts and use default agents/scope directly."
+}

@@ -1,6 +1,7 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import App from './App';
+import { t } from './i18n';
 
 // 错误边界组件
 class ErrorBoundary extends React.Component<
@@ -24,7 +25,7 @@ class ErrorBoundary extends React.Component<
     if (this.state.hasError) {
       return (
         <div style={{ padding: '20px', color: 'red' }}>
-          <h2>Something went wrong!</h2>
+          <h2>{t('errorBoundary.title')}</h2>
           <pre>{this.state.error?.toString()}</pre>
         </div>
       );

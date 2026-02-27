@@ -1,10 +1,10 @@
 .vscode/**
 .vscode-test/**
+.claude/**
 src/**
 .gitignore**
 .git/**
 .DS_Store**
-node_modules/**
 webview/node_modules/**
 webview/src/**
 webview/**/*.ts
@@ -14,3 +14,6 @@ webview/tsconfig*.json
 webview/vite.config.ts
 *.map
 package-lock.json
+docs/**
+test-*.sh
+out/test/**

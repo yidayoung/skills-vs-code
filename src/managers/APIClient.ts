@@ -3,11 +3,20 @@ import * as http from 'http';
 import * as url from 'url';
 import * as vscode from 'vscode';
 import * as fs from 'fs/promises';
-import { SkillSearchResult, SkillAPIConfig } from '../types';
+import { SkillSearchResult, SkillAPIConfig, APISkillData } from '../types';
 import { SkillCache } from './SkillCache';
 import { cloneRepo, cleanupTempDir } from '../utils/git';
 import { discoverSkillsInPath } from '../utils/skills';
 import { parseSource, buildSkillId, normalizeRepositoryUrl as normalizeRepoUrl } from '../utils/source-parser';
+
+// API constants
+const DEFAULT_SEARCH_LIMIT = 10;
+const API_TIMEOUT_MS = 10000; // 10 seconds
+const GITHUB_API_BASE = 'https://api.github.com';
+const GITHUB_RAW_BASE = 'https://raw.githubusercontent.com';
+const API_SEARCH_ENDPOINT = '/api/search';
+const SEARCH_PARAM_QUERY = 'q';
+const SEARCH_PARAM_LIMIT = 'limit';
 
 export class APIClient {
   private skillCache?: SkillCache;
@@ -15,7 +24,7 @@ export class APIClient {
 
   constructor(
     private configs: SkillAPIConfig[],
-    private context?: vscode.ExtensionContext
+    context?: vscode.ExtensionContext
   ) {
     if (context) {
       this.skillCache = new SkillCache(context);
@@ -42,24 +51,24 @@ export class APIClient {
    * Get trending/popular skills from GitHub
    * Searches for repositories with "skill" or "agent-skills" in topics, sorted by stars
    */
-  async getTrendingSkills(limit: number = 10): Promise<SkillSearchResult[]> {
+  async getTrendingSkills(limit: number = DEFAULT_SEARCH_LIMIT): Promise<SkillSearchResult[]> {
     try {
       // Search GitHub for repositories related to AI agent skills
       const searchQuery = 'topic:agent-skills OR topic:ai-skill OR topic:claude-skill OR topic:copilot-skill';
-      const apiUrl = `https://api.github.com/search/repositories?q=${encodeURIComponent(searchQuery)}&sort=stars&order=desc&per_page=${limit}`;
+      const apiUrl = `${GITHUB_API_BASE}/search/repositories?q=${encodeURIComponent(searchQuery)}&sort=stars&order=desc&per_page=${limit}`;
 
       const responseData = await this.makeHttpsRequest(apiUrl);
 
       if (responseData && responseData.items && Array.isArray(responseData.items)) {
-        return responseData.items.map((repo: any) => ({
-          id: repo.full_name,
-          name: repo.name.replace(/-/g, ' ').replace(/^skill/i, '').trim() || repo.name,
+        return responseData.items.map((repo: APISkillData) => ({
+          id: repo.full_name || repo.id || 'unknown',
+          name: (repo.name || '').replace(/-/g, ' ').replace(/^skill/i, '').trim() || repo.name || 'Unknown',
           description: repo.description || 'A skill for AI coding assistants',
-          repository: repo.html_url,
-          skillMdUrl: `${repo.html_url.replace('github.com', 'raw.githubusercontent.com')}/HEAD/SKILL.md`,
+          repository: repo.html_url || repo.repository || '',
+          skillMdUrl: repo.html_url ? `${repo.html_url.replace('github.com', 'raw.githubusercontent.com')}/HEAD/SKILL.md` : undefined,
           version: undefined,
-          stars: repo.stargazers_count || 0,
-          updatedAt: repo.updated_at,
+          stars: repo.stargazers_count || repo.stars || 0,
+          updatedAt: repo.updated_at || repo.updatedAt,
           marketName: 'GitHub Trending'
         }));
       }
@@ -84,19 +93,13 @@ export class APIClient {
         marketName = config.name;  // URL 解析失败时使用 config.name 或 undefined
       }
 
-      // Build API URL: append /api/search if not already present
-      let baseUrl = config.url;
-      if (!baseUrl.endsWith('/api/search')) {
-        // Remove trailing slash if present
-        baseUrl = baseUrl.replace(/\/$/, '');
-        baseUrl += '/api/search';
-      }
-
-      const apiUrl = new url.URL(baseUrl);
+      // Keep config simple: URL should be a base host without path, then append /api/search.
+      const parsedBase = new url.URL(config.url);
+      const apiUrl = new url.URL(`${parsedBase.origin}${API_SEARCH_ENDPOINT}`);
       // Add search params to URL
       // Note: skills.sh API uses 'q' as the query parameter name
-      apiUrl.searchParams.set('q', query);
-      apiUrl.searchParams.set('limit', '10');
+      apiUrl.searchParams.set(SEARCH_PARAM_QUERY, query);
+      apiUrl.searchParams.set(SEARCH_PARAM_LIMIT, String(DEFAULT_SEARCH_LIMIT));
 
       const responseData = await this.makeHttpsRequest(apiUrl.toString());
 
@@ -104,12 +107,12 @@ export class APIClient {
       // skills.sh API returns: { skills: [{ id, name, installs, source }] }
       if (responseData && typeof responseData === 'object') {
         if (Array.isArray(responseData.skills)) {
-          return responseData.skills.map((skill: any) =>
+          return responseData.skills.map((skill: APISkillData) =>
             this.normalizeSkillResult(skill, config.url, marketName)
           );
         } else if (Array.isArray(responseData)) {
           // Handle direct array response
-          return responseData.map((skill: any) =>
+          return responseData.map((skill: APISkillData) =>
             this.normalizeSkillResult(skill, config.url, marketName)
           );
         }
@@ -122,15 +125,17 @@ export class APIClient {
     }
   }
 
-  private normalizeSkillResult(skill: any, _apiUrl: string, marketName?: string): SkillSearchResult {
+  private normalizeSkillResult(skill: APISkillData, _apiUrl: string, marketName?: string): SkillSearchResult {
     // Handle skills.sh API format: { id, name, installs, source }
     if (skill.source) {
       return this.parseSourceField(skill, marketName);
     }
 
     // Handle generic API format (already has full URLs)
+    const baseId = skill.id || skill.repository || `${skill.name || 'unknown'}`;
+
     return {
-      id: skill.id || skill.repository || `${skill.name || 'unknown'}`,
+      id: this.buildUniqueResultId(baseId, skill.skillId),
       name: skill.name || 'Unknown',
       description: skill.description || '',
       repository: skill.repository || skill.repo || '',
@@ -167,12 +172,15 @@ export class APIClient {
    * - GitLab: "gitlab.com/owner/repo" or "https://gitlab.com/owner/repo"
    * - Custom Git host: "git.example.com/owner/repo" or "https://git.example.com/owner/repo"
    */
-  private parseSourceField(skill: any, marketName?: string): SkillSearchResult {
+  private parseSourceField(skill: APISkillData, marketName?: string): SkillSearchResult {
     const source = skill.source;
+
+    if (!source) {
+      throw new Error('Skill source is required');
+    }
 
     // 使用新的 source parser
     const parsed = parseSource(source);
-    console.log(`[parseSourceField] source="${source}" -> type=${parsed.type}`);
 
     let repository = '';
     let skillMdUrl = '';
@@ -230,10 +238,8 @@ export class APIClient {
         break;
     }
 
-    console.log(`[parseSourceField] -> repository="${repository}", skillMdUrl="${skillMdUrl}"`);
-
     return {
-      id,
+      id: this.buildUniqueResultId(id, skill.skillId),
       name: skill.name || 'Unknown',
       description: skill.installs
         ? `${this.formatInstalls(skill.installs)}`
@@ -271,8 +277,8 @@ export class APIClient {
           'Accept': 'application/json',
           'User-Agent': 'VSCode-Skills-Extension/1.0'
         },
-        // Set timeout to 10 seconds
-        timeout: 10000
+        // Set timeout
+        timeout: API_TIMEOUT_MS
       };
 
       const req = client.request(options, (res) => {
@@ -313,17 +319,18 @@ export class APIClient {
     const map = new Map<string, SkillSearchResult>();
 
     for (const skill of skills) {
-      const existing = map.get(skill.id);
+      const uniqueKey = this.getDeduplicationKey(skill);
+      const existing = map.get(uniqueKey);
 
       // Keep the skill with more metadata (prefer results with stars, version, etc.)
       if (!existing) {
-        map.set(skill.id, skill);
+        map.set(uniqueKey, skill);
       } else {
         const existingScore = this.calculateCompletenessScore(existing);
         const newScore = this.calculateCompletenessScore(skill);
 
         if (newScore > existingScore) {
-          map.set(skill.id, skill);
+          map.set(uniqueKey, skill);
         }
       }
     }
@@ -341,6 +348,17 @@ export class APIClient {
     if (skill.installs) score++;
     if (skill.updatedAt) score++;
     return score;
+  }
+
+  private buildUniqueResultId(baseId: string, skillId?: string): string {
+    if (!skillId || !skillId.trim()) {
+      return baseId;
+    }
+    return `${baseId}#${skillId}`;
+  }
+
+  private getDeduplicationKey(skill: SkillSearchResult): string {
+    return `${skill.id}::${skill.skillId || ''}`;
   }
 
   /**
@@ -361,7 +379,6 @@ export class APIClient {
 
     // 使用新的 source parser 规范化 URL
     const normalizedUrl = normalizeRepoUrl(repositoryUrl);
-    console.log(`[APIClient] Normalized URL: ${repositoryUrl} -> ${normalizedUrl}`);
 
     // 构建完整的缓存 key（包含子技能名称）
     const fullSkillId = subSkillName ? `${skillId}@${subSkillName}` : skillId;
@@ -369,16 +386,12 @@ export class APIClient {
 
     const cached = await this.skillCache.getCachedSkillMd(safeSkillId);
     if (cached) {
-      console.log(`[APIClient] Cache hit for ${fullSkillId}: ${cached}`);
       return cached;
     }
-
-    console.log(`[APIClient] Cache miss for ${fullSkillId}, fetching from ${normalizedUrl}`);
 
     // Check if there's already an in-flight request
     const existing = this.memoryCache.get(fullSkillId);
     if (existing) {
-      console.log(`[APIClient] Using in-flight request for ${fullSkillId}`);
       return existing;
     }
 
@@ -413,11 +426,9 @@ export class APIClient {
 
       try {
         progress.report({ increment: 0, message: 'Cloning repository...' });
-        console.log(`[APIClient] Cloning ${repositoryUrl}`);
         tempDir = await cloneRepo(repositoryUrl);
 
         progress.report({ increment: 40, message: 'Discovering skills...' });
-        console.log(`[APIClient] Looking for SKILL.md in ${tempDir}`);
         const skills = await discoverSkillsInPath(tempDir);
 
         if (skills.length === 0) {
@@ -440,16 +451,12 @@ export class APIClient {
 
         if (skills.length > 1) {
           // 多技能仓库：需要根据 subSkillName 或 skillId 选择正确的技能
-          console.log(`[APIClient] Found ${skills.length} skills in repository:`);
-          skills.forEach(s => console.log(`  - ${s.name} at ${s.path.replace(tempDir!, './')}`));
-
           progress.report({ increment: 10, message: 'Matching skill...' });
 
           // 优先使用 subSkillName 进行匹配
           let matchingSkill: typeof skills[0] | undefined;
 
           if (subSkillName) {
-            console.log(`[APIClient] Looking for sub-skill: ${subSkillName}`);
             matchingSkill = skills.find(s => {
               // 匹配技能名称
               if (s.name === subSkillName) return true;
@@ -471,10 +478,7 @@ export class APIClient {
 
           if (matchingSkill) {
             selectedSkill = matchingSkill;
-            console.log(`[APIClient] ✓ Selected matching skill: ${selectedSkill.name}`);
             progress.report({ increment: 10, message: `Selected: ${selectedSkill.name}` });
-          } else {
-            console.log(`[APIClient] ⚠ No exact match found, using first skill: ${selectedSkill.name}`);
           }
 
           // 根据选中的技能路径构建新的 skillId
@@ -486,11 +490,8 @@ export class APIClient {
             if (relativePath !== 'SKILL.md') {
               actualSkillId = `${actualSkillId}/${relativePath.replace(/\/SKILL\.md$/, '')}`;
             }
-            console.log(`[APIClient] Updated skillId: ${skillId} -> ${actualSkillId}`);
           }
         }
-
-        console.log(`[APIClient] Found SKILL.md at ${selectedSkill.path}`);
 
         progress.report({ increment: 15, message: 'Reading skill content...' });
 
@@ -508,9 +509,6 @@ export class APIClient {
           content,
           repositoryUrl
         );
-
-        console.log(`[APIClient] Cached to ${cachedPath}`);
-        console.log(`[APIClient] (skillId: ${fullSkillId} -> safe: ${safeSkillId})`);
 
         progress.report({ increment: 5, message: 'Done!' });
 
@@ -544,7 +542,6 @@ export class APIClient {
       throw error;
     } finally {
       if (tempDir) {
-        console.log(`[APIClient] Cleaning up temp directory ${tempDir}`);
         await cleanupTempDir(tempDir);
       }
     }

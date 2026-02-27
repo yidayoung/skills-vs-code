@@ -28,5 +28,5 @@
   },
 
   // Extension settings
-  "extensions.ignoreRecommendations": false
+  "extensions.ignoreRecommendations": true
 }

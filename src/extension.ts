@@ -1,18 +1,12 @@
 import * as vscode from 'vscode';
 import { SkillsSidebarWebviewProvider } from './webview/SkillsSidebarWebviewProvider';
 import { SkillDetailProvider } from './editors/SkillDetailProvider';
-import { SkillManager } from './managers/SkillManager';
-import { UserPreferences } from './managers/UserPreferences';
 import { APIClient } from './managers/APIClient';
 import { SkillCache } from './managers/SkillCache';
-
-export { UserPreferences } from './managers/UserPreferences';
 
 let sidebarWebviewProvider: SkillsSidebarWebviewProvider | undefined;
 
 export function activate(context: vscode.ExtensionContext) {
-  console.log('Skills VSCode extension is now active!');
-
   // Register sidebar WebviewView provider
   sidebarWebviewProvider = new SkillsSidebarWebviewProvider(
     context.extensionUri,
@@ -20,22 +14,17 @@ export function activate(context: vscode.ExtensionContext) {
   );
   context.subscriptions.push(
     vscode.window.registerWebviewViewProvider(
-      'skillsWebView',
+      'agentSkillsWebView',
       sidebarWebviewProvider
     )
   );
 
   // Initialize managers (shared across commands)
-  const userPreferences = new UserPreferences(context);
-  const skillManager = new SkillManager(
-    (vscode.workspace.workspaceFolders && vscode.workspace.workspaceFolders[0])?.uri.fsPath,
-    context.globalStorageUri.fsPath
-  );
   const skillCache = new SkillCache(context);
   const apiClient = new APIClient(
     vscode.workspace.getConfiguration('skills').get('apiUrls', [
       {
-        url: 'https://skills.sh/api/search',
+        url: 'https://skills.sh',
         enabled: true,
         name: 'Skills.sh',
         priority: 100
@@ -161,17 +150,8 @@ export function activate(context: vscode.ExtensionContext) {
     viewSkillCommand,
     clearCacheCommand
   );
-
-  // Log activation info
-  console.log('Skills Manager extension activated with sidebar view');
-  console.log('Registered commands:');
-  console.log('  - skills.refresh');
-  console.log('  - skills.search');
-  console.log('  - skills.installFromURI');
-  console.log('  - skills.viewSkill');
-  console.log('  - skills.clearCache');
 }
 
 export function deactivate() {
-  console.log('Skills VSCode extension is now deactivated!');
+  // Deactivation logic if needed
 }

@@ -1,4 +1,5 @@
 import React, { useState, createContext, useContext } from 'react';
+import { t } from '../i18n';
 
 export interface TabPanelProps {
   id: string;
@@ -20,8 +21,8 @@ export const TabContainer: React.FC<{
   const [activeTab, setActiveTab] = useState('installed');
 
   const tabs: Tab[] = [
-    { id: 'installed', label: 'Installed', icon: 'extensions' },
-    { id: 'marketplace', label: 'Marketplace', icon: 'search' }
+    { id: 'installed', label: t('tab.installed'), icon: 'extensions' },
+    { id: 'marketplace', label: t('tab.marketplace'), icon: 'search' }
   ];
 
   return (

@@ -1,6 +1,23 @@
 import * as vscode from 'vscode';
 import { SkillCache } from '../managers/SkillCache';
 import { APIClient } from '../managers/APIClient';
+import { SkillSearchResult, Skill } from '../types';
+
+type SkillLike = Skill | SkillSearchResult;
+
+/**
+ * Type guard to check if a skill is a local Skill
+ */
+function isLocalSkill(skill: SkillLike): skill is Skill {
+  return 'source' in skill && skill.source?.type === 'local';
+}
+
+/**
+ * Type guard to check if a skill is a SkillSearchResult
+ */
+function isSearchResult(skill: SkillLike): skill is SkillSearchResult {
+  return 'repository' in skill;
+}
 
 export class SkillDetailProvider {
   private static async openMarkdownInEditor(uri: vscode.Uri): Promise<void> {
@@ -17,7 +34,7 @@ export class SkillDetailProvider {
    * Show skill.md content in editor
    */
   static async show(
-    skill: any,
+    skill: SkillLike,
     managers?: {
       skillCache: SkillCache;
       apiClient: APIClient;
@@ -25,14 +42,14 @@ export class SkillDetailProvider {
   ): Promise<void> {
     try {
       // For local skills - open the file directly
-      if (skill.source?.type === 'local' && skill.source.skillMdPath) {
+      if (isLocalSkill(skill) && skill.source.skillMdPath) {
         const uri = vscode.Uri.file(skill.source.skillMdPath);
         await SkillDetailProvider.openMarkdownInEditor(uri);
         return; // Success, exit early
       }
 
       // For remote skills - try cache first, then fetch via repository clone
-      if (skill.repository && skill.id && managers) {
+      if (isSearchResult(skill) && skill.repository && skill.id && managers) {
         try {
           // 构建缓存 key（对于多技能仓库，需要包含子技能名称）
           const subSkillName = skill.skillId || skill.name;
@@ -48,8 +65,6 @@ export class SkillDetailProvider {
           }
 
           // Not in cache, fetch by cloning repository
-          console.log(`[SkillDetailProvider] Fetching skill: repository=${skill.repository}, id=${skill.id}, subSkill=${subSkillName}`);
-
           const cachedFilePath = await managers.apiClient.fetchRemoteSkillMd(
             skill.repository,
             skill.id,
@@ -66,7 +81,7 @@ export class SkillDetailProvider {
       }
 
       // Fallback: show basic info
-      const fallbackContent = `# ${skill.name}\n\n${skill.description}\n\n*Full content not available. Repository: ${skill.repository || 'N/A'}*`;
+      const fallbackContent = `# ${skill.name}\n\n${skill.description}\n\n*Full content not available. Repository: ${isSearchResult(skill) ? skill.repository : 'N/A'}*`;
       const doc = await vscode.workspace.openTextDocument({
         language: 'markdown',
         content: fallbackContent

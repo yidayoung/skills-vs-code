@@ -1,0 +1,18 @@
+{
+  "displayName": "Agent 技能管理器 Pro",
+  "description": "在 VS Code 中管理 Agent 技能，支持发现、安装、更新与卸载。",
+  "viewsContainerTitle": "技能",
+  "viewsName": "Agent 技能管理器 Pro",
+  "command.category": "技能",
+  "command.refresh.title": "刷新",
+  "command.search.title": "搜索市场",
+  "command.installFromUri.title": "从 URL 安装...",
+  "command.clearCache.title": "清理缓存",
+  "config.title": "Agent 技能管理器 Pro",
+  "config.apiUrls.description": "用于搜索和热门技能查询的市场 API 端点。",
+  "config.defaultAgents.description": "安装技能时默认选择的目标 Agent。",
+  "config.defaultScope.description": "技能默认安装作用域。",
+  "config.cacheMaxSize.description": "下载的 SKILL.md 本地缓存最大大小，单位 MB（默认 50）。",
+  "config.cacheExpiryDays.description": "SKILL.md 缓存过期天数。",
+  "config.skipInstallPrompts.description": "跳过安装提示，直接使用默认 Agent 和作用域。"
+}

@@ -10,7 +10,7 @@ import { UserPreferences } from '../managers/UserPreferences';
  * 在 VSCode 侧边栏中渲染 Skills Manager UI
  */
 export class SkillsSidebarWebviewProvider implements vscode.WebviewViewProvider {
-  public static readonly viewType = 'skillsWebView';
+  public static readonly viewType = 'agentSkillsWebView';
 
   private _view?: vscode.WebviewView;
   private _disposables: vscode.Disposable[] = [];
@@ -29,7 +29,7 @@ export class SkillsSidebarWebviewProvider implements vscode.WebviewViewProvider 
     // Get API URLs from configuration
     const apiUrls = vscode.workspace.getConfiguration('skills').get('apiUrls', [
       {
-        url: 'https://skills.sh/api/search',
+        url: 'https://skills.sh',
         enabled: true,
         name: 'Skills.sh',
         priority: 100
@@ -54,30 +54,21 @@ export class SkillsSidebarWebviewProvider implements vscode.WebviewViewProvider 
    */
   public resolveWebviewView(
     webviewView: vscode.WebviewView,
-    context: vscode.WebviewViewResolveContext,
+    _context: vscode.WebviewViewResolveContext,
     _token: vscode.CancellationToken
   ): void {
     this._view = webviewView;
 
-    // 检测是否为开发环境
-    const isDevelopment = this._isDevelopmentMode();
-
     // 配置 Webview
     webviewView.webview.options = {
       enableScripts: true,
-      localResourceRoots: isDevelopment
-        ? [
-            vscode.Uri.joinPath(this._extensionUri, 'webview', 'dist'),
-            // 允许访问 Vite 开发服务器
-            vscode.Uri.parse('http://localhost:5173')
-          ]
-        : [
-            vscode.Uri.joinPath(this._extensionUri, 'webview', 'dist')
-          ]
+      localResourceRoots: [
+        vscode.Uri.joinPath(this._extensionUri, 'webview', 'dist')
+      ]
     };
 
     // 设置 HTML
-    webviewView.webview.html = this._getHtmlForWebview(webviewView.webview, isDevelopment);
+    webviewView.webview.html = this._getHtmlForWebview(webviewView.webview);
 
     // Setup message handlers with managers
     // WebviewView implements the WebviewLike interface
@@ -131,52 +122,11 @@ export class SkillsSidebarWebviewProvider implements vscode.WebviewViewProvider 
   }
 
   /**
-   * 检测是否为开发模式
-   */
-  private _isDevelopmentMode(): boolean {
-    // 检查环境变量或 Vite 开发服务器是否运行
-    return process.env.VITE_DEV_SERVER === 'true' || process.env.NODE_ENV === 'development';
-  }
-
-  /**
    * 生成 Webview HTML 内容
    * @param webview VS Code Webview 实例
-   * @param isDevelopment 是否为开发模式
    */
-  private _getHtmlForWebview(webview: vscode.Webview, isDevelopment: boolean = false): string {
+  private _getHtmlForWebview(webview: vscode.Webview): string {
     const nonce = getNonce();
-
-    // 开发模式: 使用 Vite 开发服务器
-    if (isDevelopment) {
-      // 获取 vscode api (防止 HMR 重复获取)
-      const vscodeApi = `<script type="text/javascript">(function() { if (!window.vscode) { const vscode = acquireVsCodeApi(); window.vscode = vscode; } })();<\/script>`;
-
-      return `<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-eval' 'unsafe-inline' http://localhost:5173; style-src http://localhost:5173 'unsafe-inline'; connect-src ws://localhost:5173 http://localhost:5173;">
-  <title>Skills Manager</title>
-</head>
-<body>
-  <div id="root"></div>
-  ${vscodeApi}
-  <script type="text/javascript">window.__LOCALE__ = ${JSON.stringify(vscode.env.language)};<\/script>
-  <script type="module">
-    // 连接到 Vite 开发服务器
-    import RefreshRuntime from 'http://localhost:5173/@react-refresh';
-    RefreshRuntime.injectIntoGlobalHook(window);
-    window.$RefreshReg$ = () => {};
-    window.$RefreshSig$ = () => (type) => type;
-    window.__vite_plugin_react_preamble_installed__ = true;
-
-    // 动态导入主应用
-    import('http://localhost:5173/src/main.tsx');
-  </script>
-</body>
-</html>`;
-    }
 
     // 生产模式: 使用构建后的文件
     const scriptUri = webview.asWebviewUri(

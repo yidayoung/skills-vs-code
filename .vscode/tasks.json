@@ -16,6 +16,16 @@
       "label": "npm: watch"
     },
     {
+      "label": "build: extension & webview",
+      "dependsOn": ["npm: compile", "npm: build-webview"],
+      "dependsOrder": "sequence",
+      "problemMatcher": [],
+      "group": {
+        "kind": "build",
+        "isDefault": true
+      }
+    },
+    {
       "type": "npm",
       "script": "compile",
       "problemMatcher": "$tsc",
@@ -48,8 +58,7 @@
       "dependsOn": ["npm: watch", "npm: dev-webview"],
       "problemMatcher": [],
       "group": {
-        "kind": "build",
-        "isDefault": false
+        "kind": "none"
       }
     }
   ]

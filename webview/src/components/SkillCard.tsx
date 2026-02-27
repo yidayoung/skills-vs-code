@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { vscode } from '../vscode';
 import { SkillCardProps, getAgentTagConfig } from '../types';
 import { getMarketColorConfig } from '../utils/marketColors';
+import { t } from '../i18n';
 
 export const SkillCard: React.FC<SkillCardProps> = ({
   id,
@@ -138,7 +139,7 @@ export const SkillCard: React.FC<SkillCardProps> = ({
             <button
               className="menu-button"
               onClick={handleMenuClick}
-              title="操作"
+              title={t('card.menu.actions')}
             >
               <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
                 <circle cx="8" cy="3" r="1.5"/>
@@ -155,14 +156,14 @@ export const SkillCard: React.FC<SkillCardProps> = ({
                       className="menu-item"
                       onClick={(e) => handleAction('viewDetails', e)}
                     >
-                      打开文档
+                      {t('card.menu.openDoc')}
                     </div>
                     {hasUpdate && (
                       <div
                         className="menu-item"
                         onClick={(e) => handleAction('update', e)}
                       >
-                        更新
+                        {t('card.menu.update')}
                       </div>
                     )}
                     <div className="menu-divider"/>
@@ -170,7 +171,7 @@ export const SkillCard: React.FC<SkillCardProps> = ({
                       className="menu-item danger"
                       onClick={(e) => handleAction('remove', e)}
                     >
-                      卸载
+                      {t('card.menu.remove')}
                     </div>
                   </>
                 ) : (
@@ -179,7 +180,7 @@ export const SkillCard: React.FC<SkillCardProps> = ({
                       className="menu-item primary"
                       onClick={(e) => handleAction('install', e)}
                     >
-                      安装
+                      {t('card.menu.install')}
                     </div>
                     {repository && (
                       <div
@@ -192,7 +193,7 @@ export const SkillCard: React.FC<SkillCardProps> = ({
                           });
                         }}
                       >
-                        查看仓库
+                        {t('card.menu.repo')}
                       </div>
                     )}
                   </>

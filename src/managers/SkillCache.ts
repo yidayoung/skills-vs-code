@@ -1,10 +1,10 @@
 import * as vscode from 'vscode';
 import * as fs from 'fs/promises';
 import * as path from 'path';
-import { CacheIndex, CacheEntry, CacheConfig } from '../types/cache';
+import { CacheIndex, CacheConfig } from '../types/cache';
 
 const CACHE_VERSION = '1';
-const DEFAULT_MAX_CACHE_SIZE = 50 * 1024 * 1024; // 50MB
+const DEFAULT_MAX_CACHE_SIZE = 50; // MB
 const DEFAULT_CACHE_EXPIRY_DAYS = 7;
 
 // File-based cache configuration
@@ -26,7 +26,8 @@ export class SkillCache {
   ) {
     // Read from configuration or use defaults
     const config = vscode.workspace.getConfiguration('skills');
-    this.maxSize = config.get('cacheMaxSize', maxSize || DEFAULT_MAX_CACHE_SIZE);
+    const cacheMaxSizeMB = config.get('cacheMaxSize', maxSize || DEFAULT_MAX_CACHE_SIZE);
+    this.maxSize = cacheMaxSizeMB * 1024 * 1024; // Convert MB to bytes
     this.expiryDays = config.get('cacheExpiryDays', expiryDays || DEFAULT_CACHE_EXPIRY_DAYS);
 
     // Setup file-based cache directories

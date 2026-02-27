@@ -1,9 +1,18 @@
 {
-  "name": "skills-vscode",
-  "displayName": "Skills Manager",
-  "description": "Manage agent skills from VSCode - Install, update, and discover skills for your AI coding assistants",
-  "version": "0.1.0",
-  "publisher": "your-publisher-name",
+  "name": "agent-skills-manager-pro",
+  "displayName": "%displayName%",
+  "description": "%description%",
+  "version": "0.1.2",
+  "publisher": "yidayoung",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/yidayoung/skills-vs-code.git"
+  },
+  "homepage": "https://github.com/yidayoung/skills-vs-code#readme",
+  "bugs": {
+    "url": "https://github.com/yidayoung/skills-vs-code/issues"
+  },
   "engines": {
     "vscode": "^1.80.0"
   },
@@ -22,64 +31,64 @@
     "onStartupFinished"
   ],
   "main": "./out/extension.js",
-  "icon": "resources/icon.svg",
+  "icon": "resources/icon.png",
   "contributes": {
     "viewsContainers": {
       "activitybar": [
         {
-          "id": "skills-sidebar",
-          "title": "Skills",
+          "id": "agent-skills-sidebar",
+          "title": "%viewsContainerTitle%",
           "icon": "resources/icon.svg"
         }
       ]
     },
     "views": {
-      "skills-sidebar": [
+      "agent-skills-sidebar": [
         {
-          "id": "skillsWebView",
+          "id": "agentSkillsWebView",
           "type": "webview",
-          "name": "Skills Manager"
+          "name": "%viewsName%"
         }
       ]
     },
     "commands": [
       {
         "command": "skills.refresh",
-        "title": "Skills: Refresh",
+        "title": "%command.refresh.title%",
         "icon": "$(refresh)",
-        "category": "Skills"
+        "category": "%command.category%"
       },
       {
         "command": "skills.search",
-        "title": "Skills: Search Marketplace",
+        "title": "%command.search.title%",
         "icon": "$(search)",
-        "category": "Skills"
+        "category": "%command.category%"
       },
       {
         "command": "skills.installFromURI",
-        "title": "Skills: Install from URL...",
-        "category": "Skills"
+        "title": "%command.installFromUri.title%",
+        "category": "%command.category%"
       },
       {
         "command": "skills.clearCache",
-        "title": "Skills: Clear Cache",
-        "category": "Skills"
+        "title": "%command.clearCache.title%",
+        "category": "%command.category%"
       }
     ],
     "configuration": {
-      "title": "Skills Manager",
+      "title": "%config.title%",
       "properties": {
         "skills.apiUrls": {
           "type": "array",
           "default": [
             {
-              "url": "https://skills.sh/api/search",
+              "url": "https://skills.sh",
               "enabled": true,
               "name": "Skills.sh",
               "priority": 100
             }
           ],
-          "description": "API URLs for the skills marketplace"
+          "description": "%config.apiUrls.description%"
         },
         "skills.defaultAgents": {
           "type": "array",
@@ -89,12 +98,49 @@
           "items": {
             "type": "string",
             "enum": [
+              "amp",
+              "antigravity",
+              "augment",
               "claude-code",
+              "openclaw",
+              "cline",
+              "codebuddy",
+              "codex",
+              "command-code",
+              "continue",
+              "cortex",
+              "crush",
               "cursor",
-              "cline"
+              "droid",
+              "gemini-cli",
+              "github-copilot",
+              "goose",
+              "junie",
+              "iflow-cli",
+              "kilo",
+              "kimi-cli",
+              "kiro-cli",
+              "kode",
+              "mcpjam",
+              "mistral-vibe",
+              "mux",
+              "opencode",
+              "openhands",
+              "pi",
+              "qoder",
+              "qwen-code",
+              "replit",
+              "roo",
+              "trae",
+              "trae-cn",
+              "windsurf",
+              "zencoder",
+              "neovate",
+              "pochi",
+              "adal"
             ]
           },
-          "description": "Default agents to install skills to"
+          "description": "%config.defaultAgents.description%"
         },
         "skills.defaultScope": {
           "type": "string",
@@ -103,22 +149,23 @@
             "global"
           ],
           "default": "global",
-          "description": "Default installation scope (project or global)"
+          "description": "%config.defaultScope.description%"
         },
         "skills.cacheMaxSize": {
           "type": "number",
-          "default": 52428800,
-          "description": "Maximum cache size in bytes (default: 50MB)"
+          "default": 50,
+          "minimum": 1,
+          "description": "%config.cacheMaxSize.description%"
         },
         "skills.cacheExpiryDays": {
           "type": "number",
           "default": 7,
-          "description": "Cache expiry time in days"
+          "description": "%config.cacheExpiryDays.description%"
         },
         "skills.skipInstallPrompts": {
           "type": "boolean",
           "default": false,
-          "description": "Skip prompts when installing skills - use default agents and scope directly"
+          "description": "%config.skipInstallPrompts.description%"
         }
       }
     }

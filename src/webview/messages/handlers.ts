@@ -1,6 +1,5 @@
 import * as vscode from 'vscode';
-import * as path from 'path';
-import { VSCodeMessage } from '../../types';
+import { VSCodeMessage, SkillSearchResult } from '../../types';
 import { SkillManager } from '../../managers/SkillManager';
 import { APIClient } from '../../managers/APIClient';
 import { SkillCache } from '../../managers/SkillCache';
@@ -76,7 +75,7 @@ export function setupMessageHandlers(
 
 async function handleReady(
   webviewLike: WebviewLike,
-  context: vscode.ExtensionContext,
+  _context: vscode.ExtensionContext,
   managers: { skillManager: SkillManager; userPreferences: UserPreferences }
 ) {
   // Send initial configuration and installed skills
@@ -157,12 +156,11 @@ async function handleGetTrending(
 
 async function handleInstall(
   webviewLike: WebviewLike,
-  context: vscode.ExtensionContext,
+  _context: vscode.ExtensionContext,
   managers: { skillManager: SkillManager; userPreferences: UserPreferences; apiClient: APIClient },
-  skill: any
+  skill: SkillSearchResult
 ) {
   try {
-    console.log(`[handleInstall] Skill data:`, JSON.stringify({ id: skill.id, name: skill.name, repository: skill.repository }));
     // Check if user wants to skip prompts
     const skipPrompts = managers.userPreferences.getSkipInstallPrompts();
 
@@ -181,10 +179,8 @@ async function handleInstall(
 
       const installScope: 'project' | 'global' = managers.userPreferences.getDefaultScope();
 
-      console.log(`[Install] Skipping prompts, using defaults: agents=${selectedAgentIds.join(', ')}, scope=${installScope}`);
-
       // Perform the installation directly
-      await performInstallation(webviewLike, context, managers, skill, selectedAgentIds, installScope);
+      await performInstallation(webviewLike, _context, managers, skill, selectedAgentIds, installScope);
       return;
     }
 
@@ -261,7 +257,7 @@ async function handleInstall(
     await managers.userPreferences.setDefaultScope(installScope);
 
     // Step 3: Perform the installation
-    await performInstallation(webviewLike, context, managers, skill, selectedAgentIds, installScope);
+    await performInstallation(webviewLike, _context, managers, skill, selectedAgentIds, installScope);
 
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
@@ -274,9 +270,9 @@ async function handleInstall(
  */
 async function performInstallation(
   webviewLike: WebviewLike,
-  context: vscode.ExtensionContext,
+  _context: vscode.ExtensionContext,
   managers: { skillManager: SkillManager; userPreferences: UserPreferences; apiClient: APIClient },
-  skill: any,
+  skill: SkillSearchResult,
   agents: string[],
   scope: 'project' | 'global'
 ) {
@@ -295,11 +291,6 @@ async function performInstallation(
     const fs = await import('fs/promises');
     const pathModule = await import('path');
 
-    console.log(`[Install] skill:`, skill);
-    console.log(`[Install] skill.repository: ${skill.repository}`);
-    console.log(`[Install] skill.id: ${skill.id}`);
-    console.log(`[Install] skill.skillId: ${(skill as any).skillId}`);
-
     // Determine the skill path
     let skillPath = '';
 
@@ -308,18 +299,15 @@ async function performInstallation(
       // This is a specific skill from a multi-skill repository
       // Construct path: skills/{skillId}
       skillPath = `skills/${(skill as any).skillId}`;
-      console.log(`[Install] Using skillId to construct path: ${skillPath}`);
     } else if (skill.id && typeof skill.id === 'string' && skill.id.includes('/')) {
       // Try to extract path from skill.id (format: "owner/repo/skillName")
       const parts = skill.id.split('/');
-      console.log(`[Install] skill.id parts:`, parts);
 
       if (parts.length >= 3) {
         // Format: "owner/repo/skillName" or "owner/repo/category/skillName"
         // Extract the skill name and construct path
         const skillName = parts[parts.length - 1]; // Last part is the skill name
         skillPath = `skills/${skillName}`;
-        console.log(`[Install] Extracted from skill.id: "${skillPath}"`);
       }
     }
 
@@ -332,31 +320,9 @@ async function performInstallation(
 
     // Normalize repository URL before downloading
     const normalizedRepositoryUrl = APIClient.normalizeRepositoryUrl(skill.repository);
-    console.log(`[Install] Normalized repository URL: ${skill.repository} -> ${normalizedRepositoryUrl}`);
 
     // Download using provider system (supports GitHub, GitLab, etc.)
     await downloadSkillFolder(normalizedRepositoryUrl, tempDir, skillPath || undefined);
-
-    // Debug: list what's in tempDir after download
-    try {
-      const fs = await import('fs/promises');
-      const entries = await fs.readdir(tempDir, { withFileTypes: true });
-      console.log(`[Install] Contents of tempDir after download:`);
-      for (const entry of entries.slice(0, 10)) {
-        console.log(`  - ${entry.name} (${entry.isDirectory() ? 'dir' : 'file'})`);
-      }
-
-      // Check if SKILL.md exists in tempDir root
-      const skillMdPath = pathModule.join(tempDir, 'SKILL.md');
-      try {
-        await fs.access(skillMdPath);
-        console.log(`[Install] ✓ SKILL.md found in tempDir root`);
-      } catch {
-        console.log(`[Install] ✗ SKILL.md NOT found in tempDir root`);
-      }
-    } catch (err) {
-      console.error(`[Install] Could not list tempDir: ${err}`);
-    }
 
     const scopeLabel = scope === 'global' ? 'global' : 'project';
     const agentLabels = agents.join(', ');
@@ -378,9 +344,9 @@ async function performInstallation(
 
 async function handleUpdate(
   webviewLike: WebviewLike,
-  context: vscode.ExtensionContext,
+  _context: vscode.ExtensionContext,
   managers: { skillManager: SkillManager },
-  skill: any,
+  skill: SkillSearchResult,
   agents: string[] = []
 ) {
   try {
@@ -407,7 +373,7 @@ async function handleUpdate(
 
 async function handleRemove(
   webviewLike: WebviewLike,
-  context: vscode.ExtensionContext,
+  _context: vscode.ExtensionContext,
   managers: { skillManager: SkillManager },
   skillId: string,
   agents: string[] = [],
@@ -443,7 +409,6 @@ async function handleViewSkill(
   skill: any
 ) {
   try {
-    console.log(`[handleViewSkill] Skill data:`, JSON.stringify({ id: skill.id, name: skill.name, repository: skill.repository }));
     await SkillDetailProvider.show(skill, managers);
   } catch (error) {
     console.error(`[handleViewSkill] Error:`, error);
@@ -453,10 +418,8 @@ async function handleViewSkill(
 
 async function handleOpenRepository(url: string) {
   try {
-    console.log(`[handleOpenRepository] Original URL: "${url}"`);
     // 复用 APIClient 的 URL 规范化逻辑
     const normalizedUrl = APIClient.normalizeRepositoryUrl(url);
-    console.log(`[handleOpenRepository] Normalized URL: "${normalizedUrl}"`);
     await vscode.env.openExternal(vscode.Uri.parse(normalizedUrl));
   } catch (error) {
     console.error(`[handleOpenRepository] Error:`, error);

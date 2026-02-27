@@ -1,5 +1,4 @@
 import * as path from 'path';
-import * as fs from 'fs/promises';
 import { homedir } from 'os';
 import { existsSync } from 'fs';
 
@@ -18,54 +17,11 @@ export interface AgentInfo {
   detectInstalled?: () => boolean | Promise<boolean>;
 }
 
-export type AgentType =
-  | 'amp'
-  | 'antigravity'
-  | 'augment'
-  | 'claude-code'
-  | 'openclaw'
-  | 'cline'
-  | 'codebuddy'
-  | 'codex'
-  | 'command-code'
-  | 'continue'
-  | 'cortex'
-  | 'crush'
-  | 'cursor'
-  | 'droid'
-  | 'gemini-cli'
-  | 'github-copilot'
-  | 'goose'
-  | 'junie'
-  | 'iflow-cli'
-  | 'kilo'
-  | 'kimi-cli'
-  | 'kiro-cli'
-  | 'kode'
-  | 'mcpjam'
-  | 'mistral-vibe'
-  | 'mux'
-  | 'opencode'
-  | 'openhands'
-  | 'pi'
-  | 'qoder'
-  | 'qwen-code'
-  | 'replit'
-  | 'roo'
-  | 'trae'
-  | 'trae-cn'
-  | 'windsurf'
-  | 'zencoder'
-  | 'neovate'
-  | 'pochi'
-  | 'adal'
-  | 'universal';
-
 /**
  * Agent configurations for all supported IDEs/AI coding tools
  * Copied from https://github.com/skills/library reference implementation
  */
-export const SUPPORTED_AGENTS: AgentInfo[] = [
+export const SUPPORTED_AGENTS = [
   {
     id: 'amp',
     name: 'amp',
@@ -435,7 +391,10 @@ export const SUPPORTED_AGENTS: AgentInfo[] = [
     universal: false,
     detectInstalled: () => existsSync(path.join(home, '.adal')),
   },
-];
+] as const satisfies readonly AgentInfo[];
+
+export type SupportedAgentId = (typeof SUPPORTED_AGENTS)[number]['id'];
+export const SUPPORTED_AGENT_IDS = SUPPORTED_AGENTS.map((agent) => agent.id) as ReadonlyArray<SupportedAgentId>;
 
 function getOpenClawGlobalSkillsDir(homeDir = home): string {
   if (existsSync(path.join(homeDir, '.openclaw'))) {
@@ -451,7 +410,7 @@ function getOpenClawGlobalSkillsDir(homeDir = home): string {
 }
 
 export function getSupportedAgents(): AgentInfo[] {
-  return SUPPORTED_AGENTS;
+  return [...SUPPORTED_AGENTS];
 }
 
 export function getAgentById(id: string): AgentInfo | undefined {

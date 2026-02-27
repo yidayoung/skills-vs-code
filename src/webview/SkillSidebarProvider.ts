@@ -1,5 +1,4 @@
 import * as vscode from 'vscode';
-import * as path from 'path';
 import { setupMessageHandlers } from './messages/handlers';
 import { SkillManager } from '../managers/SkillManager';
 import { APIClient } from '../managers/APIClient';
@@ -28,7 +27,7 @@ export class SkillSidebarProvider {
     // Get API URLs from configuration
     const apiUrls = vscode.workspace.getConfiguration('skills').get('apiUrls', [
       {
-        url: 'https://skills.sh/api/search',
+        url: 'https://skills.sh',
         enabled: true,
         name: 'Skills.sh',
         priority: 100

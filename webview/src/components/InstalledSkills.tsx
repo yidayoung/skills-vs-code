@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { vscode } from '../vscode';
 import { SkillCard } from './SkillCard';
 import { TabPanel } from './TabContainer';
+import { t } from '../i18n';
 import type { InstalledVersion } from '../types';
 
 interface InstalledSkill {
@@ -79,7 +80,7 @@ export const InstalledSkills: React.FC = () => {
       <TabPanel id="installed">
         <div className="loading-container">
           <div className="spinner" />
-          <p>Loading installed skills...</p>
+          <p>{t('installed.loading')}</p>
         </div>
       </TabPanel>
     );
@@ -90,8 +91,8 @@ export const InstalledSkills: React.FC = () => {
       <TabPanel id="installed">
         <div className="empty-state">
           <span className="codicon codicon-extensions-empty" aria-hidden="true" />
-          <h3>No Skills Installed</h3>
-          <p>Install skills from the marketplace to enhance your workflow.</p>
+          <h3>{t('installed.empty.title')}</h3>
+          <p>{t('installed.empty.desc')}</p>
           <button
             className="action-button primary"
             onClick={() => {
@@ -99,7 +100,7 @@ export const InstalledSkills: React.FC = () => {
               window.location.reload(); // Simple refresh for now
             }}
           >
-            Browse Marketplace
+            {t('installed.empty.browse')}
           </button>
         </div>
       </TabPanel>
@@ -110,11 +111,11 @@ export const InstalledSkills: React.FC = () => {
     <TabPanel id="installed">
       {/* Scope Toggle */}
       <div className="scope-toggle-container">
-        <span className="scope-label">显示全局技能</span>
+        <span className="scope-label">{t('installed.scope.global')}</span>
         <button
           className={`toggle-switch ${showGlobal ? 'on' : 'off'}`}
           onClick={() => setShowGlobal(!showGlobal)}
-          aria-label="Toggle global skills visibility"
+          aria-label={t('installed.scope.toggle')}
         >
           <span className="toggle-slider"/>
         </button>

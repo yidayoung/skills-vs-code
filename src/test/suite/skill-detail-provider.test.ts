@@ -15,7 +15,7 @@ suite('SkillDetailProvider Tests Suite', () => {
 
   suiteSetup(async () => {
     // 获取测试用的 context
-    const extension = vscode.extensions.getExtension('your-publisher-name.skills-vscode');
+    const extension = vscode.extensions.getExtension('yidayoung.agent-skills-manager-pro');
     await extension?.activate();
     context = (global as any).testExtensionContext;
 
@@ -66,9 +66,10 @@ suite('SkillDetailProvider Tests Suite', () => {
       name: skillName,
       description: 'A local test skill',
       source: {
-        type: 'local',
+        type: 'local' as const,
         skillMdPath: skillMdPath
-      }
+      },
+      hasUpdate: false
     };
 
     // 调用 SkillDetailProvider.show
@@ -143,6 +144,7 @@ suite('SkillDetailProvider Tests Suite', () => {
       id: 'cached-skill',
       name: 'Cached Skill',
       description: 'A skill from cache',
+      repository: testUrl,
       skillMdUrl: testUrl
     };
 
@@ -181,6 +183,7 @@ suite('SkillDetailProvider Tests Suite', () => {
       id: 'anthropic-ai-skills-expired',
       name: 'Anthropic AI Skills',
       description: 'Test expired cache',
+      repository: testUrl,
       skillMdUrl: testUrl
     };
 
