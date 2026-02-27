@@ -25,20 +25,23 @@ export class SkillSidebarProvider {
   ) {
     this._panel = panel;
 
+    // Get API URLs from configuration
+    const apiUrls = vscode.workspace.getConfiguration('skills').get('apiUrls', [
+      {
+        url: 'https://skills.sh/api/search',
+        enabled: true,
+        name: 'Skills.sh',
+        priority: 100
+      }
+    ]);
+
     // Initialize managers
     this.managers = {
       skillManager: new SkillManager(
         (vscode.workspace.workspaceFolders && vscode.workspace.workspaceFolders[0])?.uri.fsPath,
         context.globalStorageUri.fsPath
       ),
-      apiClient: new APIClient([
-        {
-          url: 'https://api.skills.sh/search',
-          enabled: true,
-          name: 'Skills.sh',
-          priority: 100
-        }
-      ]),
+      apiClient: new APIClient(apiUrls, context),
       skillCache: new SkillCache(context),
       userPreferences: new UserPreferences(context)
     };
