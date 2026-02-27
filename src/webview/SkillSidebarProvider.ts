@@ -1,11 +1,22 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
 import { setupMessageHandlers } from './messages/handlers';
+import { SkillManager } from '../managers/SkillManager';
+import { APIClient } from '../managers/APIClient';
+import { SkillCache } from '../managers/SkillCache';
+import { UserPreferences } from '../managers/UserPreferences';
 
 export class SkillSidebarProvider {
   public static currentPanel: SkillSidebarProvider | undefined;
   private readonly _panel: vscode.WebviewPanel;
   private _disposables: vscode.Disposable[] = [];
+
+  private managers!: {
+    skillManager: SkillManager;
+    apiClient: APIClient;
+    skillCache: SkillCache;
+    userPreferences: UserPreferences;
+  };
 
   private constructor(
     panel: vscode.WebviewPanel,
@@ -14,12 +25,30 @@ export class SkillSidebarProvider {
   ) {
     this._panel = panel;
 
+    // Initialize managers
+    this.managers = {
+      skillManager: new SkillManager(
+        (vscode.workspace.workspaceFolders && vscode.workspace.workspaceFolders[0])?.uri.fsPath,
+        context.globalStorageUri.fsPath
+      ),
+      apiClient: new APIClient([
+        {
+          url: 'https://api.skills.sh/search',
+          enabled: true,
+          name: 'Skills.sh',
+          priority: 100
+        }
+      ]),
+      skillCache: new SkillCache(context),
+      userPreferences: new UserPreferences(context)
+    };
+
     this._panel.onDidDispose(() => this.dispose(), null, this._disposables);
 
     this._panel.webview.html = this._getHtmlForWebview(this._panel.webview);
 
-    // Setup message handlers
-    setupMessageHandlers(panel, context);
+    // Setup message handlers with managers
+    setupMessageHandlers(panel, context, this.managers);
   }
 
   public static show(context: vscode.ExtensionContext) {
@@ -38,6 +67,7 @@ export class SkillSidebarProvider {
       column || vscode.ViewColumn.One,
       {
         enableScripts: true,
+        retainContextWhenHidden: true,
         localResourceRoots: [
           vscode.Uri.joinPath(context.extensionUri, 'webview', 'dist')
         ]
@@ -52,8 +82,12 @@ export class SkillSidebarProvider {
   }
 
   private _getHtmlForWebview(webview: vscode.Webview): string {
+    // Use the correct path for the built files
     const scriptUri = webview.asWebviewUri(
-      vscode.Uri.joinPath(this._extensionUri, 'webview', 'dist', 'assets', 'index.js')
+      vscode.Uri.joinPath(this._extensionUri, 'webview', 'dist', 'sidebar.sidebar.js')
+    );
+    const cssUri = webview.asWebviewUri(
+      vscode.Uri.joinPath(this._extensionUri, 'webview', 'dist', 'sidebar.sidebar.css')
     );
 
     return `<!DOCTYPE html>
@@ -61,7 +95,9 @@ export class SkillSidebarProvider {
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src ${webview.cspSource} 'unsafe-inline'; style-src ${webview.cspSource} 'unsafe-inline';">
   <title>Skills Manager</title>
+  <link rel="stylesheet" href="${cssUri}">
 </head>
 <body>
   <div id="root"></div>

@@ -4,15 +4,17 @@
 export type MessageType =
   | 'ready'
   | 'installedSkills'
+  | 'requestInstalledSkills'
   | 'search'
   | 'searchResults'
   | 'searchError'
+  | 'searchStart'
   | 'install'
   | 'update'
   | 'remove'
   | 'viewSkill'
   | 'skillsUpdateStatus'
-  | 'searchStart';
+  | 'switchTab';
 
 /**
  * Base message interface
