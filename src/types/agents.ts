@@ -18,7 +18,8 @@ export interface AgentInfo {
 export type SupportedAgent =
   | 'claude-code'
   | 'cursor'
-  | 'cline';
+  | 'cline'
+  | 'codex';
 
 /**
  * Agent selection for installation

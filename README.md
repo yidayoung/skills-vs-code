@@ -35,6 +35,23 @@ Install **Agent Skills Manager Pro** from the VS Code Marketplace.
 2. In **Marketplace**, search for a skill and install it.
 3. In **Installed**, click a skill card to open its `SKILL.md`.
 
+## Screenshots
+
+### Sidebar Overview
+![Sidebar Overview](./assets/01-sidebar-overview.png)
+
+### Marketplace Search
+![Marketplace Search](./assets/02-marketplace-search-config.png)
+
+### Skill Card Actions
+![Skill Card Actions](./assets/03-skill-card-actions.png)
+
+### Installed Tab
+![Installed Tab](./assets/04-installed-tab.png)
+
+### Skill Detail
+![Skill Detail](./assets/05-skill-detail.png)
+
 ## Configuration
 
 | Setting | Description | Default |

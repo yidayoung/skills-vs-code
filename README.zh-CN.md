@@ -35,6 +35,23 @@
 2. 在 **Marketplace** 搜索并安装技能。
 3. 在 **Installed** 中点击技能卡片，打开对应 `SKILL.md`。
 
+## 截图
+
+### 侧边栏总览
+![侧边栏总览](./assets/01-sidebar-overview.png)
+
+### 市场搜索
+![市场搜索](./assets/02-marketplace-search-config.png)
+
+### 技能卡片操作
+![技能卡片操作](./assets/03-skill-card-actions.png)
+
+### 已安装页面
+![已安装页面](./assets/04-installed-tab.png)
+
+### 技能详情
+![技能详情](./assets/05-skill-detail.png)
+
 ## 配置项
 
 | 配置 | 说明 | 默认值 |
