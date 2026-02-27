@@ -329,8 +329,12 @@ async function performInstallation(
 
     progress.report({ increment: 20, message: 'Downloading skill files...' });
 
+    // Normalize repository URL before downloading
+    const normalizedRepositoryUrl = APIClient.normalizeRepositoryUrl(skill.repository);
+    console.log(`[Install] Normalized repository URL: ${skill.repository} -> ${normalizedRepositoryUrl}`);
+
     // Download using provider system (supports GitHub, GitLab, etc.)
-    await downloadSkillFolder(skill.repository, tempDir, skillPath || undefined);
+    await downloadSkillFolder(normalizedRepositoryUrl, tempDir, skillPath || undefined);
 
     // Debug: list what's in tempDir after download
     try {

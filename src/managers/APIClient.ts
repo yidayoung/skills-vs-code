@@ -120,6 +120,7 @@ export class APIClient {
       name: skill.name || 'Unknown',
       description: skill.description || '',
       repository: skill.repository || skill.repo || '',
+      skillId: skill.skillId,  // Pass through skillId for multi-skill repos
       skillMdUrl: skill.skillMdUrl || skill.skill_md_url || skill.readme_url || '',
       version: skill.version || skill.commit || skill.tag,
       stars: skill.stars || skill.star_count || 0,
@@ -229,6 +230,7 @@ export class APIClient {
         ? `${this.formatInstalls(skill.installs)}`
         : skill.description || 'A skill for AI coding assistants',
       repository,
+      skillId: skill.skillId,  // Pass through skillId for multi-skill repos
       skillMdUrl,
       version: undefined,
       stars: 0,
@@ -345,6 +347,10 @@ export class APIClient {
       throw new Error('APIClient not initialized with context');
     }
 
+    // Normalize repository URL to ensure it's in a valid format
+    const normalizedUrl = APIClient.normalizeRepositoryUrl(repositoryUrl);
+    console.log(`[APIClient] Normalized URL: ${repositoryUrl} -> ${normalizedUrl}`);
+
     // Check cache first
     const cached = await this.skillCache.getCachedSkillMd(skillId);
     if (cached) {
@@ -352,7 +358,7 @@ export class APIClient {
       return cached;
     }
 
-    console.log(`[APIClient] Cache miss for ${skillId}, fetching from ${repositoryUrl}`);
+    console.log(`[APIClient] Cache miss for ${skillId}, fetching from ${normalizedUrl}`);
 
     // Check if there's already an in-flight request
     const existing = this.memoryCache.get(skillId);
@@ -362,7 +368,7 @@ export class APIClient {
     }
 
     // Create new request
-    const promise = this.fetchWithClone(repositoryUrl, skillId);
+    const promise = this.fetchWithClone(normalizedUrl, skillId);
     this.memoryCache.set(skillId, promise);
 
     try {
