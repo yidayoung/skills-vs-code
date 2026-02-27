@@ -1,6 +1,8 @@
 import * as vscode from 'vscode';
 import { SkillSidebarProvider } from './webview/SkillSidebarProvider';
 
+export { UserPreferences } from './managers/UserPreferences';
+
 export function activate(context: vscode.ExtensionContext) {
   console.log('Skills VSCode extension is now active!');
 
