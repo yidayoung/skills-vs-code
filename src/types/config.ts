@@ -1,4 +1,5 @@
 import { Scope } from './skill';
+import type { SkillAPIConfig } from './api';
 
 /**
  * VSCode configuration for the extension
