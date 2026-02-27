@@ -132,19 +132,23 @@ export class APIClient {
   /**
    * 规范化仓库 URL
    * 支持多种格式：
-   * - GitHub: "owner/repo" → "https://github.com/owner/repo"
-   * - GitLab: "gitlab.com/owner/repo" → "https://gitlab.com/owner/repo"
-   * - 完整 URL: 直接返回
+   * - GitHub: "owner/repo" → "https://github.com/owner/repo.git"
+   * - GitLab: "gitlab.com/owner/repo" → "https://gitlab.com/owner/repo.git"
+   * - 完整 URL: 直接返回（如果有效）
    *
    * @param input - 仓库 URL（可能不完整）
    * @returns 规范化后的完整仓库 URL
    */
   static normalizeRepositoryUrl(input: string): string {
-    // 如果已经是完整的 HTTP(S) URL，直接返回
+    // 如果已经是完整的 HTTP(S) URL，验证有效性
     if (input.startsWith('http://') || input.startsWith('https://')) {
       try {
-        new URL(input);
-        return input;
+        const url = new URL(input);
+        // Check if hostname is valid (contains a dot like github.com, gitlab.com)
+        if (url.hostname && url.hostname.includes('.')) {
+          return input;
+        }
+        // Hostname is invalid (e.g., "wshobson"), fall through to fix
       } catch {
         // Invalid URL, try to fix it
       }
@@ -162,8 +166,25 @@ export class APIClient {
       return input;
     }
 
-    const [hostname, owner, ...rest] = parts;
-    const repoPath = [owner, ...rest].join('/');
+    const [first, ...rest] = parts;
+
+    // Check if first part is a valid hostname (contains a dot)
+    // If yes, it's "hostname/owner/repo" format
+    // If no, it's "owner/repo" format, default to GitHub
+    let hostname: string;
+    let owner: string;
+
+    if (first.includes('.')) {
+      // Has dot, treat as hostname: gitlab.com/owner/repo or github.com/owner/repo
+      hostname = first;
+      owner = rest[0] || '';
+    } else {
+      // No dot, treat as owner: owner/repo -> default to github.com
+      hostname = 'github.com';
+      owner = first;
+    }
+
+    const repoPath = rest.length > 0 ? [owner, ...rest.slice(1)].join('/') : owner;
 
     // Remove .git suffix if present
     const cleanRepoPath = repoPath.replace(/\.git$/, '');
@@ -180,36 +201,28 @@ export class APIClient {
    * - Custom Git host: "git.example.com/owner/repo" or "https://git.example.com/owner/repo"
    */
   private parseSourceField(skill: any): SkillSearchResult {
-    let source = skill.source;
+    const source = skill.source;
 
-    // Remove https:// prefix if present for easier parsing
-    if (source.startsWith('https://') || source.startsWith('http://')) {
-      source = source.replace(/^https?:\/\//, '');
+    // Use normalizeRepositoryUrl to get the correct repository URL
+    const repository = APIClient.normalizeRepositoryUrl(source);
+    console.log(`[parseSourceField] source="${source}" -> repository="${repository}"`);
+
+    // Parse the normalized URL to extract components for skill.md URL
+    let hostname = 'github.com';
+    let cleanRepoPath = '';
+
+    try {
+      const url = new URL(repository);
+      hostname = url.hostname;
+
+      // Extract owner/repo path, remove .git suffix
+      let pathname = url.pathname.replace(/\.git$/, '');
+      // Remove leading slash
+      cleanRepoPath = pathname.startsWith('/') ? pathname.slice(1) : pathname;
+    } catch {
+      // If URL parsing fails, use source as-is for the path
+      cleanRepoPath = source.replace(/^https?:\/\//, '').replace(/\.git$/, '');
     }
-
-    const parts = source.split('/');
-    if (parts.length < 2) {
-      // Invalid format, return minimal result
-      return {
-        id: skill.id || skill.name || 'unknown',
-        name: skill.name || 'Unknown',
-        description: skill.description || '',
-        repository: '',
-        skillMdUrl: '',
-        version: undefined,
-        stars: 0,
-        updatedAt: undefined
-      };
-    }
-
-    const [hostname, owner, ...rest] = parts;
-    const repoPath = [owner, ...rest].join('/');
-
-    // Remove .git suffix if present
-    const cleanRepoPath = repoPath.replace(/\.git$/, '');
-
-    // Build repository URL
-    const repository = `https://${hostname}/${cleanRepoPath}.git`;
 
     // Build skill.md URL based on host
     let skillMdUrl = '';
