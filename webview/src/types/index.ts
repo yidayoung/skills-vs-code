@@ -98,6 +98,8 @@ export interface SkillCardProps {
   };
   stars?: number;
   updatedAt?: string;
+  /** Marketplace name (for uninstalled skills) */
+  marketName?: string;
   onInstall?: () => void;
   onRemove?: () => void;
   onUpdate?: () => void;
