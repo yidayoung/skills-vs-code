@@ -59,7 +59,8 @@ export class APIClient {
           skillMdUrl: `${repo.html_url.replace('github.com', 'raw.githubusercontent.com')}/HEAD/SKILL.md`,
           version: undefined,
           stars: repo.stargazers_count || 0,
-          updatedAt: repo.updated_at
+          updatedAt: repo.updated_at,
+          marketName: 'GitHub Trending'
         }));
       }
 
@@ -75,6 +76,14 @@ export class APIClient {
     query: string
   ): Promise<SkillSearchResult[]> {
     try {
+      // 提前计算 marketName，避免重复和潜在的 URL 解析错误
+      let marketName: string | undefined;
+      try {
+        marketName = config.name || new URL(config.url).hostname;
+      } catch {
+        marketName = config.name;  // URL 解析失败时使用 config.name 或 undefined
+      }
+
       // Build API URL: append /api/search if not already present
       let baseUrl = config.url;
       if (!baseUrl.endsWith('/api/search')) {
@@ -95,12 +104,14 @@ export class APIClient {
       // skills.sh API returns: { skills: [{ id, name, installs, source }] }
       if (responseData && typeof responseData === 'object') {
         if (Array.isArray(responseData.skills)) {
-          const marketName = config.name || new URL(config.url).hostname;
-          return responseData.skills.map((skill: any) => this.normalizeSkillResult(skill, config.url, marketName));
+          return responseData.skills.map((skill: any) =>
+            this.normalizeSkillResult(skill, config.url, marketName)
+          );
         } else if (Array.isArray(responseData)) {
           // Handle direct array response
-          const marketName = config.name || new URL(config.url).hostname;
-          return responseData.map((skill: any) => this.normalizeSkillResult(skill, config.url, marketName));
+          return responseData.map((skill: any) =>
+            this.normalizeSkillResult(skill, config.url, marketName)
+          );
         }
       }
 
