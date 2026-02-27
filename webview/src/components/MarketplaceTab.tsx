@@ -13,6 +13,7 @@ interface MarketplaceSkill {
   version?: string;
   stars?: number;
   updatedAt?: string;
+  marketName?: string;
 }
 
 export const MarketplaceTab: React.FC = () => {
@@ -180,6 +181,7 @@ export const MarketplaceTab: React.FC = () => {
                 skillMdUrl={skill.skillMdUrl}
                 stars={skill.stars}
                 updatedAt={skill.updatedAt}
+                marketName={skill.marketName}
                 agentType="claude-code" // 市场默认为 claude-code，安装后可选择
                 scope="project" // 市场技能默认为项目安装
                 installed={false}
