@@ -57,7 +57,7 @@ export async function downloadSkillFolder(
     tempDir = await cloneRepo(repositoryUrl, repo.ref);
 
     // Determine source path (skill folder within cloned repo)
-    const sourcePath = repo.path
+    let sourcePath = repo.path
       ? path.join(tempDir, repo.path)
       : tempDir;
 
@@ -65,21 +65,41 @@ export async function downloadSkillFolder(
     console.log(`[Downloader] Target path: ${targetDir}`);
 
     // Check if source path exists
+    let pathExists = false;
     try {
       await fs.access(sourcePath);
+      pathExists = true;
       console.log(`[Downloader] Source path exists`);
     } catch {
-      console.error(`[Downloader] Source path does not exist: ${sourcePath}`);
+      console.warn(`[Downloader] Source path does not exist: ${sourcePath}`);
+
+      // If skillPath was specified but doesn't exist, fall back to repo root
+      if (repo.path) {
+        console.log(`[Downloader] Falling back to repository root`);
+        sourcePath = tempDir;
+
+        try {
+          await fs.access(sourcePath);
+          pathExists = true;
+          console.log(`[Downloader] Repository root exists`);
+        } catch {
+          console.error(`[Downloader] Repository root also doesn't exist!`);
+        }
+      }
+
       // List what's in tempDir to help debug
       try {
         const entries = await fs.readdir(tempDir, { withFileTypes: true });
         console.log(`[Downloader] Contents of tempDir:`);
-        for (const entry of entries) {
+        for (const entry of entries.slice(0, 20)) {
           console.log(`  - ${entry.name} (${entry.isDirectory() ? 'dir' : 'file'})`);
         }
       } catch (err) {
         console.error(`[Downloader] Could not list tempDir: ${err}`);
       }
+    }
+
+    if (!pathExists) {
       throw new Error(`Source path not found: ${sourcePath}`);
     }
 

@@ -35,18 +35,20 @@ export class GitLabProvider implements HostProvider {
   }
 
   parseUrl(repoUrl: string): ParsedRepository | null {
-    // Parse: https://gitlab.com/owner/repo/-/tree/ref/path
-    // Or: https://gitlab.com/owner/repo
+    // Parse: https://gitlab.com/owner/repo.git/-/tree/ref/path
+    // Or: https://gitlab.com/owner/repo.git
 
     const match = repoUrl.match(
-      /gitlab\.com\/([^\/]+)\/([^\/]+)(?:\/-\/tree\/([^\/]+)(?:\/(.+))?)?/
+      /gitlab\.com\/([^\/]+)\/([^\/\?]+)(?:\/-\/tree\/([^\/]+)(?:\/(.+))?)?/
     );
 
     if (!match) {
       return null;
     }
 
-    const [, owner, repo, ref = 'main', path = ''] = match;
+    const [, owner, repoWithGit, ref = 'main', path = ''] = match;
+    // Remove .git suffix if present
+    const repo = repoWithGit.replace(/\.git$/, '');
 
     return {
       platform: 'gitlab',
