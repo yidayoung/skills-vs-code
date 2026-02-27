@@ -54,6 +54,8 @@ export interface SkillSearchResult {
   installs?: number;
   /** Last updated timestamp */
   updatedAt?: string;
+  /** Marketplace name (e.g., "Skills.sh", "Community Hub") */
+  marketName?: string;
 }
 
 /**
