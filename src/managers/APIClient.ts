@@ -1,10 +1,25 @@
 import * as https from 'https';
 import * as http from 'http';
 import * as url from 'url';
+import * as vscode from 'vscode';
+import * as fs from 'fs/promises';
 import { SkillSearchResult, SkillAPIConfig } from '../types';
+import { SkillCache } from './SkillCache';
+import { cloneRepo, cleanupTempDir } from '../utils/git';
+import { discoverSkillsInPath } from '../utils/skills';
 
 export class APIClient {
-  constructor(private configs: SkillAPIConfig[]) {}
+  private skillCache?: SkillCache;
+  private memoryCache = new Map<string, Promise<string>>(); // Prevent concurrent requests
+
+  constructor(
+    private configs: SkillAPIConfig[],
+    private context?: vscode.ExtensionContext
+  ) {
+    if (context) {
+      this.skillCache = new SkillCache(context);
+    }
+  }
 
   async searchSkills(query: string): Promise<SkillSearchResult[]> {
     const enabledConfigs = this.configs
@@ -22,30 +37,57 @@ export class APIClient {
     return this.deduplicateSkills(allSkills);
   }
 
+  /**
+   * Get trending/popular skills from GitHub
+   * Searches for repositories with "skill" or "agent-skills" in topics, sorted by stars
+   */
+  async getTrendingSkills(limit: number = 10): Promise<SkillSearchResult[]> {
+    try {
+      // Search GitHub for repositories related to AI agent skills
+      const searchQuery = 'topic:agent-skills OR topic:ai-skill OR topic:claude-skill OR topic:copilot-skill';
+      const apiUrl = `https://api.github.com/search/repositories?q=${encodeURIComponent(searchQuery)}&sort=stars&order=desc&per_page=${limit}`;
+
+      const responseData = await this.makeHttpsRequest(apiUrl);
+
+      if (responseData && responseData.items && Array.isArray(responseData.items)) {
+        return responseData.items.map((repo: any) => ({
+          id: repo.full_name,
+          name: repo.name.replace(/-/g, ' ').replace(/^skill/i, '').trim() || repo.name,
+          description: repo.description || 'A skill for AI coding assistants',
+          repository: repo.html_url,
+          skillMdUrl: `${repo.html_url.replace('github.com', 'raw.githubusercontent.com')}/HEAD/SKILL.md`,
+          version: undefined,
+          stars: repo.stargazers_count || 0,
+          updatedAt: repo.updated_at
+        }));
+      }
+
+      return [];
+    } catch (error) {
+      console.error('Failed to fetch trending skills:', error);
+      return [];
+    }
+  }
+
   private async fetchFromAPI(
     config: SkillAPIConfig,
     query: string
   ): Promise<SkillSearchResult[]> {
     try {
       const apiUrl = new url.URL(config.url);
-      const searchParams = new URLSearchParams({
-        q: query,
-        limit: '50'
-      });
-
       // Add search params to URL
       apiUrl.searchParams.set('q', query);
-      apiUrl.searchParams.set('limit', '50');
+      apiUrl.searchParams.set('limit', '10');
 
       const responseData = await this.makeHttpsRequest(apiUrl.toString());
 
       // Parse response based on expected API format
-      // This assumes the API returns a format similar to:
-      // { skills: [{ id, name, description, repository, skillMdUrl, version, stars, updatedAt }] }
+      // skills.sh API returns: { skills: [{ id, name, installs, source }] }
       if (responseData && typeof responseData === 'object') {
         if (Array.isArray(responseData.skills)) {
           return responseData.skills.map((skill: any) => this.normalizeSkillResult(skill, config.url));
         } else if (Array.isArray(responseData)) {
+          // Handle direct array response
           return responseData.map((skill: any) => this.normalizeSkillResult(skill, config.url));
         }
       }
@@ -57,7 +99,13 @@ export class APIClient {
     }
   }
 
-  private normalizeSkillResult(skill: any, apiUrl: string): SkillSearchResult {
+  private normalizeSkillResult(skill: any, _apiUrl: string): SkillSearchResult {
+    // Handle skills.sh API format: { id, name, installs, source }
+    if (skill.source) {
+      return this.parseSourceField(skill);
+    }
+
+    // Handle generic API format (already has full URLs)
     return {
       id: skill.id || skill.repository || `${skill.name || 'unknown'}`,
       name: skill.name || 'Unknown',
@@ -68,6 +116,78 @@ export class APIClient {
       stars: skill.stars || skill.star_count || 0,
       updatedAt: skill.updatedAt || skill.updated_at || skill.last_updated
     };
+  }
+
+  /**
+   * Parse the 'source' field from skill data and convert to normalized format
+   * Supports multiple formats:
+   * - GitHub: "owner/repo" or "https://github.com/owner/repo"
+   * - GitLab: "gitlab.com/owner/repo" or "https://gitlab.com/owner/repo"
+   * - Custom Git host: "git.example.com/owner/repo" or "https://git.example.com/owner/repo"
+   */
+  private parseSourceField(skill: any): SkillSearchResult {
+    let source = skill.source;
+
+    // Remove https:// prefix if present for easier parsing
+    if (source.startsWith('https://') || source.startsWith('http://')) {
+      source = source.replace(/^https?:\/\//, '');
+    }
+
+    const parts = source.split('/');
+    if (parts.length < 2) {
+      // Invalid format, return minimal result
+      return {
+        id: skill.id || skill.name || 'unknown',
+        name: skill.name || 'Unknown',
+        description: skill.description || '',
+        repository: '',
+        skillMdUrl: '',
+        version: undefined,
+        stars: 0,
+        updatedAt: undefined
+      };
+    }
+
+    const [hostname, owner, ...rest] = parts;
+    const repoPath = [owner, ...rest].join('/');
+
+    // Remove .git suffix if present
+    const cleanRepoPath = repoPath.replace(/\.git$/, '');
+
+    // Build repository URL
+    const repository = `https://${hostname}/${cleanRepoPath}.git`;
+
+    // Build skill.md URL based on host
+    let skillMdUrl = '';
+    if (hostname === 'github.com') {
+      skillMdUrl = `https://raw.githubusercontent.com/${cleanRepoPath}/HEAD/SKILL.md`;
+    } else if (hostname === 'gitlab.com' || hostname.includes('gitlab')) {
+      // GitLab format: https://gitlab.com/owner/repo/-/raw/main/SKILL.md
+      skillMdUrl = `https://${hostname}/${cleanRepoPath}/-/raw/main/SKILL.md`;
+    } else {
+      // Generic Git host - try common patterns
+      skillMdUrl = `https://${hostname}/${cleanRepoPath}/-/raw/main/SKILL.md`;
+    }
+
+    return {
+      id: skill.id || cleanRepoPath,
+      name: skill.name || 'Unknown',
+      description: skill.installs
+        ? `${this.formatInstalls(skill.installs)}`
+        : skill.description || 'A skill for AI coding assistants',
+      repository,
+      skillMdUrl,
+      version: undefined,
+      stars: 0,
+      updatedAt: undefined
+    };
+  }
+
+  private formatInstalls(count: number): string {
+    if (!count || count <= 0) return '';
+    if (count >= 1_000_000) return `${(count / 1_000_000).toFixed(1).replace(/\.0$/, '')}M installs`;
+    if (count >= 1_000) return `${(count / 1_000).toFixed(1).replace(/\.0$/, '')}K installs`;
+    return `${count} install${count === 1 ? '' : 's'}`;
   }
 
   private makeHttpsRequest(urlString: string): Promise<any> {
@@ -158,24 +278,172 @@ export class APIClient {
   }
 
   /**
-   * Fetch raw skill.md content from URL
+   * Fetch raw skill.md content from URL with fallback strategy
    */
   async fetchSkillMd(skillMdUrl: string): Promise<string | null> {
-    try {
-      const content = await this.makeHttpsRequest(skillMdUrl);
+    const urlsToTry = this.generateFallbackUrls(skillMdUrl);
 
-      // Handle different response formats
-      if (typeof content === 'string') {
-        return content;
-      } else if (content && typeof content === 'object') {
-        // Some APIs return { content: "..." } or { data: "..." }
-        return content.content || content.data || content.body || JSON.stringify(content);
+    for (const url of urlsToTry) {
+      try {
+        const content = await this.makeHttpsRequest(url);
+
+        // Handle different response formats
+        if (typeof content === 'string') {
+          return content;
+        } else if (content && typeof content === 'object') {
+          // Some APIs return { content: "..." } or { data: "..." }
+          return content.content || content.data || content.body || JSON.stringify(content);
+        }
+      } catch (error) {
+        // Try next URL
+        console.debug(`Failed to fetch from ${url}, trying fallback...`);
+        continue;
+      }
+    }
+
+    console.error(`Failed to fetch skill.md from all variants of ${skillMdUrl}`);
+    return null;
+  }
+
+  /**
+   * Generate fallback URLs for skill.md
+   * Tries different branch names and common paths
+   */
+  private generateFallbackUrls(originalUrl: string): string[] {
+    const urls = [originalUrl];
+
+    // Try replacing HEAD with main/master
+    if (originalUrl.includes('/HEAD/')) {
+      urls.push(originalUrl.replace('/HEAD/', '/main/'));
+      urls.push(originalUrl.replace('/HEAD/', '/master/'));
+    }
+
+    // Try replacing main with master and vice versa
+    if (originalUrl.includes('/main/')) {
+      urls.push(originalUrl.replace('/main/', '/master/'));
+    } else if (originalUrl.includes('/master/')) {
+      urls.push(originalUrl.replace('/master/', '/main/'));
+    }
+
+    return urls;
+  }
+
+  /**
+   * 从远程仓库获取 skill.md 并缓存
+   * @param repositoryUrl - Git 仓库 URL
+   * @param skillId - 技能唯一标识
+   * @returns 返回缓存文件的绝对路径
+   */
+  async fetchRemoteSkillMd(
+    repositoryUrl: string,
+    skillId: string
+  ): Promise<string> {
+    if (!this.skillCache) {
+      throw new Error('APIClient not initialized with context');
+    }
+
+    // Check cache first
+    const cached = await this.skillCache.getCachedSkillMd(skillId);
+    if (cached) {
+      console.log(`[APIClient] Cache hit for ${skillId}: ${cached}`);
+      return cached;
+    }
+
+    console.log(`[APIClient] Cache miss for ${skillId}, fetching from ${repositoryUrl}`);
+
+    // Check if there's already an in-flight request
+    const existing = this.memoryCache.get(skillId);
+    if (existing) {
+      console.log(`[APIClient] Using in-flight request for ${skillId}`);
+      return existing;
+    }
+
+    // Create new request
+    const promise = this.fetchWithClone(repositoryUrl, skillId);
+    this.memoryCache.set(skillId, promise);
+
+    try {
+      const result = await promise;
+      return result;
+    } finally {
+      // Clean up memory cache after completion
+      this.memoryCache.delete(skillId);
+    }
+  }
+
+  private async fetchWithClone(
+    repositoryUrl: string,
+    skillId: string
+  ): Promise<string> {
+    let tempDir: string | null = null;
+
+    try {
+      console.log(`[APIClient] Cloning ${repositoryUrl}`);
+      tempDir = await cloneRepo(repositoryUrl);
+
+      console.log(`[APIClient] Looking for SKILL.md in ${tempDir}`);
+      const skills = await discoverSkillsInPath(tempDir);
+
+      if (skills.length === 0) {
+        throw new Error(
+          `No SKILL.md found in repository.\n\n` +
+          `Checked locations:\n` +
+          `- Repository root\n` +
+          `- skills/\n` +
+          `- .agents/skills/\n` +
+          `- .claude/skills/\n\n` +
+          `Please ensure the repository contains a valid SKILL.md file.`
+        );
       }
 
-      return null;
+      // Use the first skill found
+      const skill = skills[0];
+      console.log(`[APIClient] Found SKILL.md at ${skill.path}`);
+
+      // Read the content
+      const content = await fs.readFile(skill.path, 'utf-8');
+
+      // Cache it
+      const cachedPath = await this.skillCache!.cacheSkillMd(
+        skillId,
+        content,
+        repositoryUrl
+      );
+
+      console.log(`[APIClient] Cached to ${cachedPath}`);
+      return cachedPath;
+
     } catch (error) {
-      console.error(`Failed to fetch skill.md from ${skillMdUrl}:`, error);
-      return null;
+      // Handle GitCloneError specifically
+      if (error instanceof Error && error.name === 'GitCloneError') {
+        const gitError = error as any;
+        if (gitError.isTimeout) {
+          throw new Error(
+            `Repository clone timed out after 60 seconds.\n\n` +
+            `This may happen with:\n` +
+            `- Large repositories\n` +
+            `- Slow network connections\n` +
+            `- Private repositories requiring authentication\n\n` +
+            `Repository: ${repositoryUrl}`
+          );
+        }
+        if (gitError.isAuthError) {
+          throw new Error(
+            `Authentication failed for repository.\n\n` +
+            `This repository may be private or require authentication.\n` +
+            `Repository: ${repositoryUrl}\n\n` +
+            `Please ensure you have access to this repository.`
+          );
+        }
+      }
+
+      // Re-throw with original message
+      throw error;
+    } finally {
+      if (tempDir) {
+        console.log(`[APIClient] Cleaning up temp directory ${tempDir}`);
+        await cleanupTempDir(tempDir);
+      }
     }
   }
 }

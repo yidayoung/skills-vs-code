@@ -9,12 +9,19 @@ export type MessageType =
   | 'searchResults'
   | 'searchError'
   | 'searchStart'
+  | 'getTrending'
+  | 'trendingResults'
   | 'install'
   | 'update'
   | 'remove'
   | 'viewSkill'
+  | 'openRepository'
   | 'skillsUpdateStatus'
-  | 'switchTab';
+  | 'switchTab'
+  | 'fetchRemoteSkillMd'
+  | 'skillMdFetched'
+  | 'skillMdError'
+  | 'openSkillMd';
 
 /**
  * Base message interface
