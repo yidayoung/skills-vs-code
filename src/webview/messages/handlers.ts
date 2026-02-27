@@ -444,60 +444,10 @@ async function handleViewSkill(
   }
 }
 
-/**
- * 规范化仓库 URL
- * 支持多种格式：
- * - GitHub: "owner/repo" 或 "https://github.com/owner/repo"
- * - GitLab: "gitlab.com/owner/repo" 或 "https://gitlab.com/owner/repo"
- * - 完整 HTTP(S) URL
- */
-function normalizeRepositoryUrl(input: string): string {
-  // 如果已经是完整的 HTTP(S) URL，直接返回
-  if (input.startsWith('http://') || input.startsWith('https://')) {
-    try {
-      new URL(input);
-      return input;
-    } catch {
-      // Invalid URL, try to fix it
-    }
-  }
-
-  // 处理 "owner/repo" 或 "gitlab.com/owner/repo" 格式
-  if (input.includes('/')) {
-    // 检查是否包含 hostname（如 gitlab.com）
-    const parts = input.split('/');
-    if (parts.length >= 2) {
-      const maybeHostname = parts[0];
-
-      // 常见的 Git 主机名
-      const knownHosts = ['github.com', 'gitlab.com', 'bitbucket.org', 'git.sr.ht'];
-      const isKnownHost = knownHosts.includes(maybeHostname);
-
-      if (isKnownHost || parts.length > 2) {
-        // 格式: "hostname/owner/repo" 或 "hostname/owner/repo/path"
-        return `https://${input}`;
-      } else {
-        // 格式: "owner/repo" - 默认使用 GitHub
-        return `https://github.com/${input}`;
-      }
-    }
-  }
-
-  // 如果包含 .git 后缀，确保有 https://
-  if (input.endsWith('.git')) {
-    if (input.startsWith('https://') || input.startsWith('http://')) {
-      return input;
-    }
-    return `https://${input}`;
-  }
-
-  // 默认返回原值
-  return input;
-}
-
 async function handleOpenRepository(url: string) {
   try {
-    const normalizedUrl = normalizeRepositoryUrl(url);
+    // 复用 APIClient 的 URL 规范化逻辑
+    const normalizedUrl = APIClient.normalizeRepositoryUrl(url);
     await vscode.env.openExternal(vscode.Uri.parse(normalizedUrl));
   } catch (error) {
     vscode.window.showErrorMessage(`Failed to open repository: ${error}`);

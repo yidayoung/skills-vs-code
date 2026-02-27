@@ -74,8 +74,17 @@ export class APIClient {
     query: string
   ): Promise<SkillSearchResult[]> {
     try {
-      const apiUrl = new url.URL(config.url);
+      // Build API URL: append /api/search if not already present
+      let baseUrl = config.url;
+      if (!baseUrl.endsWith('/api/search')) {
+        // Remove trailing slash if present
+        baseUrl = baseUrl.replace(/\/$/, '');
+        baseUrl += '/api/search';
+      }
+
+      const apiUrl = new url.URL(baseUrl);
       // Add search params to URL
+      // Note: skills.sh API uses 'q' as the query parameter name
       apiUrl.searchParams.set('q', query);
       apiUrl.searchParams.set('limit', '10');
 
@@ -114,8 +123,52 @@ export class APIClient {
       skillMdUrl: skill.skillMdUrl || skill.skill_md_url || skill.readme_url || '',
       version: skill.version || skill.commit || skill.tag,
       stars: skill.stars || skill.star_count || 0,
+      installs: skill.installs,
       updatedAt: skill.updatedAt || skill.updated_at || skill.last_updated
     };
+  }
+
+  /**
+   * 规范化仓库 URL
+   * 支持多种格式：
+   * - GitHub: "owner/repo" → "https://github.com/owner/repo"
+   * - GitLab: "gitlab.com/owner/repo" → "https://gitlab.com/owner/repo"
+   * - 完整 URL: 直接返回
+   *
+   * @param input - 仓库 URL（可能不完整）
+   * @returns 规范化后的完整仓库 URL
+   */
+  static normalizeRepositoryUrl(input: string): string {
+    // 如果已经是完整的 HTTP(S) URL，直接返回
+    if (input.startsWith('http://') || input.startsWith('https://')) {
+      try {
+        new URL(input);
+        return input;
+      } catch {
+        // Invalid URL, try to fix it
+      }
+    }
+
+    // Remove https:// or http:// prefix if present for easier parsing
+    let source = input;
+    if (source.startsWith('https://') || source.startsWith('http://')) {
+      source = source.replace(/^https?:\/\//, '');
+    }
+
+    const parts = source.split('/');
+    if (parts.length < 2) {
+      // Invalid format, return as is
+      return input;
+    }
+
+    const [hostname, owner, ...rest] = parts;
+    const repoPath = [owner, ...rest].join('/');
+
+    // Remove .git suffix if present
+    const cleanRepoPath = repoPath.replace(/\.git$/, '');
+
+    // Build repository URL
+    return `https://${hostname}/${cleanRepoPath}.git`;
   }
 
   /**
@@ -179,6 +232,7 @@ export class APIClient {
       skillMdUrl,
       version: undefined,
       stars: 0,
+      installs: skill.installs,
       updatedAt: undefined
     };
   }
@@ -270,62 +324,11 @@ export class APIClient {
     if (skill.name) score++;
     if (skill.description) score++;
     if (skill.repository) score++;
-    if (skill.skillMdUrl) score++;
     if (skill.version) score++;
     if (skill.stars) score++;
+    if (skill.installs) score++;
     if (skill.updatedAt) score++;
     return score;
-  }
-
-  /**
-   * Fetch raw skill.md content from URL with fallback strategy
-   */
-  async fetchSkillMd(skillMdUrl: string): Promise<string | null> {
-    const urlsToTry = this.generateFallbackUrls(skillMdUrl);
-
-    for (const url of urlsToTry) {
-      try {
-        const content = await this.makeHttpsRequest(url);
-
-        // Handle different response formats
-        if (typeof content === 'string') {
-          return content;
-        } else if (content && typeof content === 'object') {
-          // Some APIs return { content: "..." } or { data: "..." }
-          return content.content || content.data || content.body || JSON.stringify(content);
-        }
-      } catch (error) {
-        // Try next URL
-        console.debug(`Failed to fetch from ${url}, trying fallback...`);
-        continue;
-      }
-    }
-
-    console.error(`Failed to fetch skill.md from all variants of ${skillMdUrl}`);
-    return null;
-  }
-
-  /**
-   * Generate fallback URLs for skill.md
-   * Tries different branch names and common paths
-   */
-  private generateFallbackUrls(originalUrl: string): string[] {
-    const urls = [originalUrl];
-
-    // Try replacing HEAD with main/master
-    if (originalUrl.includes('/HEAD/')) {
-      urls.push(originalUrl.replace('/HEAD/', '/main/'));
-      urls.push(originalUrl.replace('/HEAD/', '/master/'));
-    }
-
-    // Try replacing main with master and vice versa
-    if (originalUrl.includes('/main/')) {
-      urls.push(originalUrl.replace('/main/', '/master/'));
-    } else if (originalUrl.includes('/master/')) {
-      urls.push(originalUrl.replace('/master/', '/main/'));
-    }
-
-    return urls;
   }
 
   /**
