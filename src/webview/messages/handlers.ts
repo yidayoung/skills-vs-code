@@ -162,6 +162,7 @@ async function handleInstall(
   skill: any
 ) {
   try {
+    console.log(`[handleInstall] Skill data:`, JSON.stringify({ id: skill.id, name: skill.name, repository: skill.repository }));
     // Check if user wants to skip prompts
     const skipPrompts = managers.userPreferences.getSkipInstallPrompts();
 
@@ -442,18 +443,23 @@ async function handleViewSkill(
   skill: any
 ) {
   try {
+    console.log(`[handleViewSkill] Skill data:`, JSON.stringify({ id: skill.id, name: skill.name, repository: skill.repository }));
     await SkillDetailProvider.show(skill, managers);
   } catch (error) {
+    console.error(`[handleViewSkill] Error:`, error);
     vscode.window.showErrorMessage(`Failed to view skill: ${error}`);
   }
 }
 
 async function handleOpenRepository(url: string) {
   try {
+    console.log(`[handleOpenRepository] Original URL: "${url}"`);
     // 复用 APIClient 的 URL 规范化逻辑
     const normalizedUrl = APIClient.normalizeRepositoryUrl(url);
+    console.log(`[handleOpenRepository] Normalized URL: "${normalizedUrl}"`);
     await vscode.env.openExternal(vscode.Uri.parse(normalizedUrl));
   } catch (error) {
+    console.error(`[handleOpenRepository] Error:`, error);
     vscode.window.showErrorMessage(`Failed to open repository: ${error}`);
   }
 }

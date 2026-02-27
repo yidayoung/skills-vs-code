@@ -2,28 +2,26 @@ import React, { useState, useEffect } from 'react';
 import { vscode } from '../vscode';
 import { SkillCard } from './SkillCard';
 import { TabPanel } from './TabContainer';
+import type { InstalledVersion } from '../types';
 
 interface InstalledSkill {
   id: string;
   name: string;
   description: string;
-  installedVersions: Array<{
-    agent: string;
-    scope: 'project' | 'global';
-    path: string;
-  }>;
+  source?: {
+    type: 'local';
+    skillMdPath: string;
+    localPath?: string;
+  };
+  repository?: string;
+  installedVersions: InstalledVersion[];
   hasUpdate: boolean;
-}
-
-interface GroupedSkills {
-  [key: string]: InstalledSkill[];
 }
 
 export const InstalledSkills: React.FC = () => {
   const [skills, setSkills] = useState<InstalledSkill[]>([]);
   const [loading, setLoading] = useState(true);
-  const [groupBy, setGroupBy] = useState<'none' | 'agent' | 'scope'>('none');
-  const [filterScope, setFilterScope] = useState<'all' | 'project' | 'global'>('all');
+  const [showGlobal, setShowGlobal] = useState(true); // 默认显示全局
 
   useEffect(() => {
     // Request installed skills from extension
@@ -42,45 +40,6 @@ export const InstalledSkills: React.FC = () => {
     return () => window.removeEventListener('message', handleMessage);
   }, []);
 
-  const groupedSkills: GroupedSkills = React.useMemo(() => {
-    if (groupBy === 'none') {
-      return { 'All Skills': skills };
-    }
-
-    return skills.reduce((acc, skill) => {
-      let key: string;
-
-      if (groupBy === 'agent') {
-        // Group by first agent
-        key = skill.installedVersions[0]?.agent || 'Unknown';
-      } else {
-        // Group by scope
-        key = skill.installedVersions[0]?.scope || 'unknown';
-      }
-
-      if (!acc[key]) {
-        acc[key] = [];
-      }
-      acc[key].push(skill);
-      return acc;
-    }, {} as GroupedSkills);
-  }, [skills, groupBy]);
-
-  const filteredSkills = React.useMemo(() => {
-    if (filterScope === 'all') return skills;
-
-    return skills.filter(skill =>
-      skill.installedVersions.some(v => v.scope === filterScope)
-    );
-  }, [skills, filterScope]);
-
-  const handleInstall = (skillId: string) => {
-    vscode.postMessage({
-      type: 'install',
-      skill: { id: skillId }
-    });
-  };
-
   const handleUpdate = (skill: InstalledSkill) => {
     const agents = skill.installedVersions.map(v => v.agent);
     vscode.postMessage({
@@ -91,19 +50,33 @@ export const InstalledSkills: React.FC = () => {
   };
 
   const handleRemove = (skill: InstalledSkill) => {
-    const agents = skill.installedVersions.map(v => v.agent);
+    // Pass empty array to remove from ALL agents
+    // This ensures all symlinks and ghost links are cleaned up
     const scope = skill.installedVersions[0]?.scope || 'project';
     vscode.postMessage({
       type: 'remove',
       skillId: skill.id,
-      agents,
+      agents: [], // Empty array = remove from all agents
       scope
     });
   };
 
+  // 根据选择过滤技能
+  const filteredSkills = React.useMemo(() => {
+    return skills.filter(skill => {
+      if (showGlobal) {
+        // 显示全局：只显示 global scope
+        return skill.installedVersions.some(v => v.scope === 'global');
+      } else {
+        // 显示项目：只显示 project scope
+        return skill.installedVersions.some(v => v.scope === 'project');
+      }
+    });
+  }, [skills, showGlobal]);
+
   if (loading) {
     return (
-      <TabPanel id="installed" isActive={true}>
+      <TabPanel id="installed">
         <div className="loading-container">
           <div className="spinner" />
           <p>Loading installed skills...</p>
@@ -114,7 +87,7 @@ export const InstalledSkills: React.FC = () => {
 
   if (skills.length === 0) {
     return (
-      <TabPanel id="installed" isActive={true}>
+      <TabPanel id="installed">
         <div className="empty-state">
           <span className="codicon codicon-extensions-empty" aria-hidden="true" />
           <h3>No Skills Installed</h3>
@@ -122,8 +95,8 @@ export const InstalledSkills: React.FC = () => {
           <button
             className="action-button primary"
             onClick={() => {
-              // Switch to marketplace tab
-              vscode.postMessage({ type: 'switchTab', tab: 'marketplace' });
+              // Note: Tab switching is handled by parent
+              window.location.reload(); // Simple refresh for now
             }}
           >
             Browse Marketplace
@@ -134,66 +107,41 @@ export const InstalledSkills: React.FC = () => {
   }
 
   return (
-    <TabPanel id="installed" isActive={true}>
-      {/* Controls Bar */}
-      <div className="skills-controls">
-        <div className="control-group">
-          <label htmlFor="group-select">Group by:</label>
-          <select
-            id="group-select"
-            value={groupBy}
-            onChange={(e) => setGroupBy(e.target.value as any)}
-            className="vscode-select"
-          >
-            <option value="none">None</option>
-            <option value="agent">Agent</option>
-            <option value="scope">Scope</option>
-          </select>
-        </div>
-
-        <div className="control-group">
-          <label htmlFor="scope-select">Scope:</label>
-          <select
-            id="scope-select"
-            value={filterScope}
-            onChange={(e) => setFilterScope(e.target.value as any)}
-            className="vscode-select"
-          >
-            <option value="all">All</option>
-            <option value="project">Project</option>
-            <option value="global">Global</option>
-          </select>
-        </div>
-
-        <div className="control-group">
-          <span className="skills-count">{filteredSkills.length} skills</span>
-        </div>
+    <TabPanel id="installed">
+      {/* Scope Toggle */}
+      <div className="scope-toggle-container">
+        <span className="scope-label">显示全局技能</span>
+        <button
+          className={`toggle-switch ${showGlobal ? 'on' : 'off'}`}
+          onClick={() => setShowGlobal(!showGlobal)}
+          aria-label="Toggle global skills visibility"
+        >
+          <span className="toggle-slider"/>
+        </button>
       </div>
 
       {/* Skills List */}
       <div className="skills-list">
-        {Object.entries(groupedSkills).map(([groupKey, groupSkills]) => (
-          <div key={groupKey} className="skill-group">
-            {groupBy !== 'none' && (
-              <h4 className="group-title">{groupKey}</h4>
-            )}
-            <div className="skill-cards">
-              {groupSkills
-                .filter(skill => {
-                  if (filterScope === 'all') return true;
-                  return skill.installedVersions.some(v => v.scope === filterScope);
-                })
-                .map(skill => (
-                  <SkillCard
-                    key={skill.id}
-                    {...skill}
-                    onUpdate={() => handleUpdate(skill)}
-                    onRemove={() => handleRemove(skill)}
-                  />
-                ))}
-            </div>
-          </div>
-        ))}
+        {filteredSkills.map(skill => {
+          // 获取第一个安装版本的信息用于显示
+          const firstVersion = skill.installedVersions[0];
+          return (
+            <SkillCard
+              key={skill.id}
+              id={skill.id}
+              name={skill.name}
+              description={skill.description}
+              repository={skill.repository}
+              source={skill.source}
+              agentType={firstVersion?.agent as any || 'claude-code'}
+              scope={firstVersion?.scope || 'project'}
+              installed={true}
+              hasUpdate={skill.hasUpdate}
+              onUpdate={() => handleUpdate(skill)}
+              onRemove={() => handleRemove(skill)}
+            />
+          );
+        })}
       </div>
     </TabPanel>
   );

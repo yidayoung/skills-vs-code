@@ -33,6 +33,11 @@ export class UserPreferences {
     await this.context.globalState.update('recentAPIs', recent.slice(0, 5));
   }
 
+  getSkipInstallPrompts(): boolean {
+    const config = vscode.workspace.getConfiguration('skills');
+    return config.get<boolean>('skipInstallPrompts', false);
+  }
+
   async clearAll(): Promise<void> {
     await this.context.globalState.update('defaultAgents', undefined);
     await this.context.globalState.update('defaultScope', undefined);

@@ -1,0 +1,32 @@
+{
+  // TypeScript settings
+  "typescript.tsdk": "node_modules/typescript/lib",
+  "typescript.enablePromptUseWorkspaceTsdk": true,
+
+  // Editor settings
+  "editor.formatOnSave": true,
+  "editor.defaultFormatter": "esbenp.prettier-vscode",
+  "editor.codeActionsOnSave": {
+    "source.fixAll.eslint": "explicit"
+  },
+
+  // Files to exclude
+  "files.exclude": {
+    "**/.git": true,
+    "**/.DS_Store": true,
+    "**/node_modules": true,
+    "**/out": true,
+    "**/dist": true
+  },
+
+  // Search exclude
+  "search.exclude": {
+    "**/node_modules": true,
+    "**/out": true,
+    "**/dist": true,
+    "**/.git": true
+  },
+
+  // Extension settings
+  "extensions.ignoreRecommendations": false
+}

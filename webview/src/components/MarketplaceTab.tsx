@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { vscode } from '../vscode';
 import { SkillCard } from './SkillCard';
 import { TabPanel } from './TabContainer';
+import type { SupportedAgent } from '../types';
 
 interface MarketplaceSkill {
   id: string;
@@ -53,6 +54,7 @@ export const MarketplaceTab: React.FC = () => {
         case 'searchResults':
           setSkills(message.data || []);
           setLoading(false);
+          setHasSearched(true);
           break;
 
         case 'searchError':
@@ -74,7 +76,7 @@ export const MarketplaceTab: React.FC = () => {
   };
 
   return (
-    <TabPanel id="marketplace" isActive={true}>
+    <TabPanel id="marketplace">
       {/* Search Header */}
       <div className="marketplace-header">
         <div className="search-container">
@@ -96,10 +98,6 @@ export const MarketplaceTab: React.FC = () => {
           >
             Search
           </button>
-        </div>
-
-        <div className="search-tips">
-          <p>💡 Tip: Try searching for specific keywords like "database", "api", "ui", or "testing"</p>
         </div>
       </div>
 
@@ -171,16 +169,20 @@ export const MarketplaceTab: React.FC = () => {
       {/* Results Grid */}
       {hasSearched && !loading && !error && skills.length > 0 && (
         <div className="marketplace-results">
-          <div className="results-header">
-            <h4>Results</h4>
-            <span className="results-count">{skills.length} skills found</span>
-          </div>
-
           <div className="skill-cards">
             {skills.map(skill => (
               <SkillCard
                 key={skill.id}
-                {...skill}
+                id={skill.id}
+                name={skill.name}
+                description={skill.description}
+                repository={skill.repository}
+                skillMdUrl={skill.skillMdUrl}
+                stars={skill.stars}
+                updatedAt={skill.updatedAt}
+                agentType="claude-code" // 市场默认为 claude-code，安装后可选择
+                scope="project" // 市场技能默认为项目安装
+                installed={false}
                 onInstall={() => handleInstall(skill)}
               />
             ))}

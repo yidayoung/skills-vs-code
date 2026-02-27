@@ -1,7 +1,7 @@
-import React, { useState } from 'react';
-import { vscode } from '../vscode';
+import React, { useState, createContext, useContext } from 'react';
 
-interface TabContainerProps {
+export interface TabPanelProps {
+  id: string;
   children: React.ReactNode;
 }
 
@@ -11,7 +11,12 @@ interface Tab {
   icon: string;
 }
 
-export const TabContainer: React.FC<TabContainerProps> = ({ children }) => {
+// Context to pass activeTab to child components
+const TabContext = createContext<string>('installed');
+
+export const TabContainer: React.FC<{
+  children: React.ReactNode;
+}> = ({ children }) => {
   const [activeTab, setActiveTab] = useState('installed');
 
   const tabs: Tab[] = [
@@ -19,57 +24,46 @@ export const TabContainer: React.FC<TabContainerProps> = ({ children }) => {
     { id: 'marketplace', label: 'Marketplace', icon: 'search' }
   ];
 
-  const handleTabChange = (tabId: string) => {
-    setActiveTab(tabId);
-    // Notify extension about tab change
-    vscode.postMessage({
-      type: 'tabChanged',
-      tab: tabId
-    });
-  };
-
   return (
-    <div className="tab-container">
-      {/* Tab Navigation */}
-      <div className="tab-nav">
-        {tabs.map(tab => (
-          <button
-            key={tab.id}
-            className={`tab-button ${activeTab === tab.id ? 'active' : ''}`}
-            onClick={() => handleTabChange(tab.id)}
-            role="tab"
-            aria-selected={activeTab === tab.id}
-            aria-controls={`${tab.id}-panel`}
-          >
-            <span className="codicon codicon-{tab.icon}" aria-hidden="true" />
-            {tab.label}
-          </button>
-        ))}
-      </div>
+    <TabContext.Provider value={activeTab}>
+      <div className="tab-container">
+        {/* Tab Navigation */}
+        <div className="tab-nav">
+          {tabs.map(tab => (
+            <button
+              key={tab.id}
+              className={`tab-button ${activeTab === tab.id ? 'active' : ''}`}
+              onClick={() => setActiveTab(tab.id)}
+              role="tab"
+              aria-selected={activeTab === tab.id}
+              aria-controls={`${tab.id}-panel`}
+              tabIndex={activeTab === tab.id ? 0 : -1}
+            >
+              <span className={`codicon codicon-${tab.icon}`} aria-hidden="true" />
+              {tab.label}
+            </button>
+          ))}
+        </div>
 
-      {/* Tab Content */}
-      <div className="tab-content">
-        {React.Children.map(children, child => {
-          if (React.isValidElement(child)) {
-            return React.cloneElement(child as any, {
-              isActive: (child.props as any).id === activeTab
-            });
-          }
-          return child;
-        })}
+        {/* Tab Content */}
+        <div className="tab-content">
+          {children}
+        </div>
       </div>
-    </div>
+    </TabContext.Provider>
   );
 };
 
-interface TabPanelProps {
-  id: string;
-  isActive: boolean;
-  children: React.ReactNode;
-}
+export const TabPanel: React.FC<TabPanelProps> = ({
+  id,
+  children
+}) => {
+  const activeTab = useContext(TabContext);
+  const isActive = id === activeTab;
 
-export const TabPanel: React.FC<TabPanelProps> = ({ id, isActive, children }) => {
-  if (!isActive) return null;
+  if (!isActive) {
+    return null;
+  }
 
   return (
     <div

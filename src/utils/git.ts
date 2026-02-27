@@ -49,7 +49,8 @@ export async function cloneRepo(url: string, ref?: string): Promise<string> {
     },
   });
 
-  // Shallow clone: only download the latest commit
+  // Try to clone with automatic branch detection first
+  // If no ref specified, Git will automatically detect the default branch
   const cloneOptions = ref ? ['--depth', '1', '--branch', ref] : ['--depth', '1'];
 
   try {
@@ -57,11 +58,35 @@ export async function cloneRepo(url: string, ref?: string): Promise<string> {
     console.log(`[Git] Clone successful: ${tempDir}`);
     return tempDir;
   } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    console.error(`[Git] Clone failed: ${errorMessage}`);
+
+    // If the error is about branch not found and no ref was specified, try common branch names
+    if (!ref && (errorMessage.includes('remote branch') || errorMessage.includes('main') || errorMessage.includes('未发现'))) {
+      console.log(`[Git] Trying fallback branches...`);
+
+      // Try common branch names
+      const branchesToTry = ['master', 'main', 'develop', 'dev'];
+
+      for (const branch of branchesToTry) {
+        try {
+          console.log(`[Git] Trying branch: ${branch}`);
+          const options = ['--depth', '1', '--branch', branch];
+          await git.clone(url, tempDir, options);
+          console.log(`[Git] Clone successful with branch ${branch}: ${tempDir}`);
+          return tempDir;
+        } catch (branchError) {
+          console.log(`[Git] Branch ${branch} failed, trying next...`);
+          // Clean up failed attempt
+          await cleanupTempDir(tempDir).catch(() => {});
+          continue;
+        }
+      }
+    }
+
     // Clean up temp dir on failure
     await cleanupTempDir(tempDir).catch(() => {});
 
-    const errorMessage = error instanceof Error ? error.message : String(error);
-    console.error(`[Git] Clone failed: ${errorMessage}`);
     const isTimeout = errorMessage.includes('block timeout') || errorMessage.includes('timed out');
     const isAuthError =
       errorMessage.includes('Authentication failed') ||

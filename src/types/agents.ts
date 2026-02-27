@@ -18,10 +18,7 @@ export interface AgentInfo {
 export type SupportedAgent =
   | 'claude-code'
   | 'cursor'
-  | 'opencode'
-  | 'cline'
-  | 'codex'
-  | 'github-copilot';
+  | 'cline';
 
 /**
  * Agent selection for installation

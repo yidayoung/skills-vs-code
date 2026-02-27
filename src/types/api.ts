@@ -34,14 +34,24 @@ export interface SkillSearchResult {
   name: string;
   /** Skill description */
   description: string;
-  /** GitHub repository */
+  /** Git repository URL (used for cloning) */
   repository: string;
-  /** URL to fetch SKILL.md */
-  skillMdUrl: string;
+  /**
+   * Skill subdirectory name for multi-skill repositories
+   * e.g., "my-skill" for a repository with skills/my-skill/SKILL.md
+   */
+  skillId?: string;
+  /**
+   * @deprecated Use `repository` with `fetchRemoteSkillMd()` instead.
+   * Direct URL to fetch SKILL.md (legacy, may not work for private repos)
+   */
+  skillMdUrl?: string;
   /** Version (commit or tag) */
   version?: string;
   /** GitHub stars count */
   stars?: number;
+  /** Installation count (from skills.sh) */
+  installs?: number;
   /** Last updated timestamp */
   updatedAt?: string;
 }

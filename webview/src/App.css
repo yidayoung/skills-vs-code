@@ -216,6 +216,67 @@ body {
   flex-wrap: wrap;
 }
 
+/* Scope Toggle */
+.scope-toggle-container {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 16px;
+  background: var(--vscode-editor-background);
+  border: 1px solid var(--vscode-input-border);
+  border-radius: 4px;
+  margin-bottom: 16px;
+}
+
+.scope-label {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--vscode-foreground);
+}
+
+.toggle-switch {
+  position: relative;
+  width: 44px;
+  height: 24px;
+  background: rgba(128, 128, 128, 0.3);
+  border: 2px solid rgba(128, 128, 128, 0.5);
+  border-radius: 12px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  flex-shrink: 0;
+  box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+.toggle-switch:hover {
+  border-color: rgba(128, 128, 128, 0.7);
+  background: rgba(128, 128, 128, 0.35);
+}
+
+.toggle-switch.on {
+  background: #0891B2;
+  border-color: #0891B2;
+  box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.2);
+}
+
+.toggle-slider {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 18px;
+  height: 18px;
+  background: #ffffff;
+  border: 2px solid rgba(0, 0, 0, 0.1);
+  border-radius: 50%;
+  transition: transform 0.2s ease;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2), inset 0 -1px 2px rgba(0, 0, 0, 0.1);
+}
+
+.toggle-switch.on .toggle-slider {
+  transform: translateX(20px);
+  background: #ffffff;
+}
+
 .control-group {
   display: flex;
   align-items: center;
@@ -281,31 +342,50 @@ body {
 .skill-card {
   background: var(--vscode-editor-background);
   border: 1px solid var(--vscode-widget-border);
+  border-left: 3px solid transparent;
   border-radius: 6px;
   padding: 16px;
   transition: all 150ms ease;
   cursor: pointer;
+  position: relative;
+}
+
+/* Scope color indicator */
+.skill-card.global {
+  border-left: 3px solid rgba(8, 145, 178, 0.3);
+  background: linear-gradient(90deg, rgba(8, 145, 178, 0.05) 0%, transparent 8%);
+}
+
+.skill-card.project {
+  border-left: 3px solid transparent;
 }
 
 .skill-card:hover {
-  border-color: var(--vscode-focusBorder);
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  border-color: #0891B2 !important;
+  box-shadow: 0 2px 8px rgba(8, 145, 178, 0.2);
 }
 
 .skill-card.installed {
-  border-left: 3px solid var(--vscode-testingIconPassedForeground);
+  /* Removed - now using scope-based coloring */
 }
 
 .skill-card.has-update {
-  border-left: 3px solid var(--vscode-testingIconErroredForeground);
+  /* Removed - now using scope-based coloring */
 }
 
 .skill-card-header {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-between;
   gap: 12px;
   margin-bottom: 8px;
+}
+
+.skill-header-left {
+  display: flex;
+  align-items: center;
+  flex: 1;
+  min-width: 0;
 }
 
 .skill-name {
@@ -314,6 +394,99 @@ body {
   color: var(--vscode-foreground);
   margin: 0;
   line-height: 1.4;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* IDE Tag */
+.ide-tag {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 500;
+  margin-right: 8px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+/* Actions wrapper - smooth fade in/out */
+.skill-actions-wrapper {
+  transition: opacity 0.2s ease;
+  flex-shrink: 0;
+  margin-left: 8px;
+}
+
+.action-menu {
+  position: relative;
+}
+
+.menu-button {
+  background: transparent;
+  border: none;
+  color: var(--vscode-foreground);
+  cursor: pointer;
+  padding: 4px;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0.7;
+  transition: opacity 0.2s ease, background 0.2s ease;
+}
+
+.menu-button:hover {
+  opacity: 1;
+  background: var(--vscode-toolbar-hoverBackground);
+}
+
+/* Dropdown menu */
+.dropdown-menu {
+  position: absolute;
+  right: 0;
+  top: 100%;
+  background: var(--vscode-menu-background);
+  border: 1px solid var(--vscode-menu-border);
+  border-radius: 6px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+  min-width: 150px;
+  z-index: 100;
+  margin-top: 4px;
+  overflow: hidden;
+}
+
+.menu-item {
+  padding: 8px 12px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--vscode-foreground);
+  transition: background 0.15s ease;
+}
+
+.menu-item:hover {
+  background: var(--vscode-menu-hoverBackground);
+}
+
+.menu-item.primary {
+  color: #22C55E;
+  font-weight: 500;
+}
+
+.menu-item.danger {
+  color: #EF4444;
+}
+
+.menu-divider {
+  height: 1px;
+  background: var(--vscode-menu-border);
+  margin: 4px 0;
 }
 
 .badge {

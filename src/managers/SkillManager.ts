@@ -48,9 +48,9 @@ export class SkillManager {
       });
     }
 
-    // Scan canonical and agent-specific directories
+    // Scan canonical (.agents/skills) directory with 'universal' identifier
     for (const scope of scopes) {
-      await this.scanDirectory(scope.path, scope.global, agentsToCheck, skillsMap);
+      await this.scanDirectory(scope.path, scope.global, ['universal'], skillsMap);
     }
 
     // Scan agent-specific directories for non-canonical agents
@@ -146,13 +146,124 @@ export class SkillManager {
   ): Promise<void> {
     const cwd = this.workspaceRoot || process.cwd();
 
+    console.log(`[SkillManager] Installing skill from: ${skillPath}`);
+    console.log(`[SkillManager] Agents: ${agents.join(', ')}`);
+    console.log(`[SkillManager] Scope: ${scope}`);
+
     // Parse the skill to get its metadata
     const skillMdPath = path.join(skillPath, 'SKILL.md');
+    console.log(`[SkillManager] Looking for SKILL.md at: ${skillMdPath}`);
+
+    // Check if skillPath exists
+    try {
+      await fs.access(skillPath);
+      console.log(`[SkillManager] skillPath exists`);
+    } catch {
+      console.error(`[SkillManager] skillPath does not exist: ${skillPath}`);
+      throw new Error(`Skill path not found: ${skillPath}`);
+    }
+
+    // Check if SKILL.md exists
+    try {
+      await fs.access(skillMdPath);
+      console.log(`[SkillManager] SKILL.md exists`);
+    } catch {
+      console.log(`[SkillManager] No SKILL.md in root, checking for multi-skill repository...`);
+
+      // Check for common skill subdirectories (like reference project does)
+      const skillSubdirs = ['skills', '.agents/skills', '.claude/skills'];
+      const foundSkills: Array<{ name: string; path: string }> = [];
+
+      for (const subdir of skillSubdirs) {
+        const subDirPath = path.join(skillPath, subdir);
+        try {
+          await fs.access(subDirPath);
+          const entries = await fs.readdir(subDirPath, { withFileTypes: true });
+
+          for (const entry of entries) {
+            if (entry.isDirectory()) {
+              const subSkillMdPath = path.join(subDirPath, entry.name, 'SKILL.md');
+              try {
+                await fs.access(subSkillMdPath);
+
+                // Parse to get the skill name
+                const parsed = await parseSkillMd(subSkillMdPath);
+                if (parsed) {
+                  foundSkills.push({
+                    name: parsed.name,
+                    path: path.join(subDirPath, entry.name)
+                  });
+                }
+              } catch {
+                // Not a valid skill
+              }
+            }
+          }
+
+          if (foundSkills.length > 0) {
+            break; // Found skills in this directory
+          }
+        } catch {
+          // Directory doesn't exist, continue to next
+        }
+      }
+
+      if (foundSkills.length > 0) {
+        console.log(`[SkillManager] Found ${foundSkills.length} skills in subdirectories`);
+
+        // Sort by name
+        foundSkills.sort((a, b) => a.name.localeCompare(b.name));
+
+        // Ask user which skill to install
+        const selected = await vscode.window.showQuickPick(
+          foundSkills.map(s => ({
+            label: s.name,
+            description: path.relative(skillPath, s.path)
+          })),
+          {
+            placeHolder: 'This repository contains multiple skills. Select one to install:',
+            title: 'Multi-Skill Repository'
+          }
+        );
+
+        if (!selected) {
+          throw new Error('Installation cancelled');
+        }
+
+        // Find the selected skill's path
+        const selectedSkill = foundSkills.find(s => s.name === selected.label);
+        if (selectedSkill) {
+          console.log(`[SkillManager] Installing sub-skill: ${selectedSkill.name} from ${selectedSkill.path}`);
+
+          // Recursively call installSkill with the sub-skill path
+          return this.installSkill(selectedSkill.path, agents, scope);
+        }
+      }
+
+      // If we get here, no SKILL.md was found
+      console.error(`[SkillManager] SKILL.md not found at: ${skillMdPath}`);
+
+      // List what's in skillPath to help debug
+      try {
+        const entries = await fs.readdir(skillPath, { withFileTypes: true });
+        console.error(`[SkillManager] Contents of skillPath:`);
+        for (const entry of entries.slice(0, 20)) { // Limit to first 20 items
+          console.error(`  - ${entry.name} (${entry.isDirectory() ? 'dir' : 'file'})`);
+        }
+      } catch (err) {
+        console.error(`[SkillManager] Could not list skillPath: ${err}`);
+      }
+
+      throw new Error(`SKILL.md not found at: ${skillMdPath}`);
+    }
+
     const parsedSkill = await parseSkillMd(skillMdPath);
 
     if (!parsedSkill) {
       throw new Error('Invalid skill: SKILL.md not found or invalid');
     }
+
+    console.log(`[SkillManager] Parsed skill: ${parsedSkill.name}`);
 
     const skillName = sanitizeName(parsedSkill.name);
     const canonicalDir = path.join(
@@ -162,11 +273,15 @@ export class SkillManager {
       skillName
     );
 
+    console.log(`[SkillManager] Canonical directory: ${canonicalDir}`);
+
     // Create canonical directory
     await fs.mkdir(canonicalDir, { recursive: true });
 
     // Copy skill files to canonical directory
     await this.copyDirectory(skillPath, canonicalDir);
+
+    console.log(`[SkillManager] Files copied to canonical directory`);
 
     // Create symlinks for each agent
     for (const agentId of agents) {
@@ -185,12 +300,16 @@ export class SkillManager {
       try {
         await fs.unlink(agentSkillDir).catch(() => {});
         await fs.symlink(canonicalDir, agentSkillDir);
+        console.log(`[SkillManager] Created symlink for ${agent.displayName}`);
       } catch (error) {
+        console.error(`[SkillManager] Failed to create symlink for ${agent.displayName}: ${error}`);
         vscode.window.showWarningMessage(
           `Failed to create symlink for ${agent.displayName}: ${error}`
         );
       }
     }
+
+    console.log(`[SkillManager] Installation complete`);
   }
 
   /**
@@ -212,37 +331,165 @@ export class SkillManager {
 
   /**
    * Remove a skill
+   * Follows the reference implementation from https://github.com/skills/library
    */
   async removeSkill(skillId: string, agents: string[], scope: 'project' | 'global'): Promise<void> {
     const cwd = this.workspaceRoot || process.cwd();
     const skillName = sanitizeName(skillId);
 
-    for (const agentId of agents) {
+    console.log(`[SkillManager] Removing skill: ${skillName}`);
+    console.log(`[SkillManager] Target agents: ${agents.join(', ')}`);
+    console.log(`[SkillManager] Scope: ${scope}`);
+
+    // If no agents specified, remove from all known agents to clean up ghost symlinks
+    let targetAgents = agents;
+    if (agents.length === 0) {
+      targetAgents = getSupportedAgents().map(a => a.id);
+      console.log(`[SkillManager] No agents specified, targeting all ${targetAgents.length} agents`);
+    }
+
+    const canonicalPath = path.join(
+      scope === 'global' ? homedir() : cwd,
+      AGENTS_DIR,
+      SKILLS_SUBDIR,
+      skillName
+    );
+
+    console.log(`[SkillManager] Canonical path: ${canonicalPath}`);
+
+    // Step 1: Remove agent-specific symlinks (but not canonical yet)
+    for (const agentId of targetAgents) {
       const agent = getSupportedAgents().find(a => a.id === agentId);
       if (!agent) continue;
 
-      let skillDir: string;
-
+      // For universal agents, the canonical path IS their path
+      // Skip it here - we'll handle it after checking all agents
       if (agent.universal) {
-        skillDir = path.join(
-          scope === 'global' ? homedir() : cwd,
-          AGENTS_DIR,
-          SKILLS_SUBDIR,
-          skillName
-        );
-      } else {
-        const agentBase = getAgentSkillsDir(agentId, scope === 'global', cwd);
-        skillDir = path.join(agentBase, skillName);
+        console.log(`[SkillManager] Skipping universal agent ${agent.displayName} (will handle canonical)`);
+        continue;
       }
+
+      const agentSkillDir = path.join(
+        getAgentSkillsDir(agentId, scope === 'global', cwd),
+        skillName
+      );
+
+      console.log(`[SkillManager] Checking ${agent.displayName}: ${agentSkillDir}`);
 
       try {
-        await fs.rm(skillDir, { recursive: true, force: true });
+        // Check if path exists
+        await fs.access(agentSkillDir);
+
+        // Remove the agent-specific symlink/directory
+        await fs.rm(agentSkillDir, { recursive: true, force: true });
+        console.log(`[SkillManager] ✓ Removed from ${agent.displayName}`);
       } catch (error) {
-        vscode.window.showWarningMessage(
-          `Failed to remove skill from ${agent.displayName}: ${error}`
-        );
+        // Path doesn't exist or can't be accessed - that's fine
+        console.log(`[SkillManager] - Not installed for ${agent.displayName}`);
       }
     }
+
+    // Step 2: Remove canonical path only if no other agents are using it
+    // This prevents breaking other agents when uninstalling from specific agents
+    console.log(`[SkillManager] Checking if canonical path is still used by other agents...`);
+
+    // If we're removing from ALL agents, we can always remove canonical
+    const isRemovingFromAll = targetAgents.length === getSupportedAgents().length;
+
+    if (isRemovingFromAll) {
+      console.log(`[SkillManager] Removing from all agents, will delete canonical path`);
+    } else {
+      // Only check if we're removing from specific agents
+      const targetAgentIds = new Set(targetAgents);
+      let isStillUsed = false;
+
+      for (const agent of getSupportedAgents()) {
+        // Skip agents we're actively removing from
+        if (targetAgentIds.has(agent.id)) {
+          console.log(`[SkillManager] - Skipping ${agent.displayName} (in target agents)`);
+          continue;
+        }
+
+        // Determine the path for this agent
+        let checkPath: string;
+        if (agent.universal) {
+          // Universal agents use the canonical path
+          checkPath = canonicalPath;
+        } else {
+          // Non-universal agents have their own symlink paths
+          checkPath = path.join(
+            getAgentSkillsDir(agent.id, scope === 'global', cwd),
+            skillName
+          );
+        }
+
+        console.log(`[SkillManager] - Checking ${agent.displayName}: ${checkPath}`);
+
+        try {
+          // Check if this path exists (lstat doesn't follow symlinks)
+          await fs.lstat(checkPath);
+
+          // For non-universal agents, verify the symlink isn't broken
+          // and points to the canonical path (which means it's a valid install)
+          if (!agent.universal) {
+            try {
+              const targetPath = await fs.readlink(checkPath);
+              const resolvedCanonical = path.resolve(canonicalPath);
+              const resolvedTarget = path.resolve(path.dirname(checkPath), targetPath);
+
+              // Check if the symlink points to the canonical directory
+              if (resolvedTarget === resolvedCanonical) {
+                // This agent has a valid symlink to canonical path
+                // But we need to verify the canonical path will still exist after removal
+                // Since we're planning to remove canonical, this agent would be broken
+                console.log(`[SkillManager] ✗ ${agent.displayName} has symlink pointing to canonical`);
+                isStillUsed = true;
+                break;
+              } else {
+                // Symlink points elsewhere, not our concern
+                console.log(`[SkillManager] - ${agent.displayName} symlink points to different location`);
+              }
+            } catch {
+              // Not a symlink or can't read link, treat as regular directory
+              // This agent has its own copy, not affected by canonical removal
+              console.log(`[SkillManager] - ${agent.displayName} has its own copy (not a symlink)`);
+            }
+          } else {
+            // Universal agent directly uses canonical path
+            console.log(`[SkillManager] ✗ ${agent.displayName} uses canonical path directly`);
+            isStillUsed = true;
+            break;
+          }
+        } catch {
+          // Path doesn't exist, agent doesn't have this skill
+          console.log(`[SkillManager] - ${agent.displayName} doesn't have this skill`);
+        }
+      }
+
+      if (!isStillUsed) {
+        try {
+          await fs.rm(canonicalPath, { recursive: true, force: true });
+          console.log(`[SkillManager] ✓ Removed canonical path`);
+        } catch (error) {
+          // Canonical path might not exist, that's fine
+          console.log(`[SkillManager] - Canonical path didn't exist or couldn't be removed`);
+        }
+      } else {
+        console.log(`[SkillManager] ℹ Keeping canonical path (still used by other agents)`);
+        return; // Exit early, canonical is preserved
+      }
+    }
+
+    // If we're removing from all agents, or no other agents are using it, remove canonical
+    try {
+      await fs.rm(canonicalPath, { recursive: true, force: true });
+      console.log(`[SkillManager] ✓ Removed canonical path`);
+    } catch (error) {
+      // Canonical path might not exist, that's fine
+      console.log(`[SkillManager] - Canonical path didn't exist or couldn't be removed`);
+    }
+
+    console.log(`[SkillManager] Removal complete`);
   }
 
   private async copyDirectory(src: string, dest: string): Promise<void> {

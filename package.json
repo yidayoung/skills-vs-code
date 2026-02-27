@@ -22,17 +22,30 @@
     "onStartupFinished"
   ],
   "main": "./out/extension.js",
+  "icon": "resources/icon.svg",
   "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "skills-sidebar",
+          "title": "Skills",
+          "icon": "resources/icon.svg"
+        }
+      ]
+    },
+    "views": {
+      "skills-sidebar": [
+        {
+          "id": "skillsWebView",
+          "type": "webview",
+          "name": "Skills Manager"
+        }
+      ]
+    },
     "commands": [
       {
-        "command": "skills.showSidebar",
-        "title": "Skills: Show Sidebar",
-        "icon": "$(extensions)",
-        "category": "Skills"
-      },
-      {
         "command": "skills.refresh",
-        "title": "Skills: Refresh Installed Skills",
+        "title": "Skills: Refresh",
         "icon": "$(refresh)",
         "category": "Skills"
       },
@@ -46,14 +59,11 @@
         "command": "skills.installFromURI",
         "title": "Skills: Install from URL...",
         "category": "Skills"
-      }
-    ],
-    "keybindings": [
+      },
       {
-        "command": "skills.showSidebar",
-        "key": "ctrl+shift+s",
-        "mac": "cmd+shift+s",
-        "when": "!sidebarFocus"
+        "command": "skills.clearCache",
+        "title": "Skills: Clear Cache",
+        "category": "Skills"
       }
     ],
     "configuration": {
@@ -63,7 +73,7 @@
           "type": "array",
           "default": [
             {
-              "url": "https://api.skills.sh/search",
+              "url": "https://skills.sh/api/search",
               "enabled": true,
               "name": "Skills.sh",
               "priority": 100
@@ -73,16 +83,25 @@
         },
         "skills.defaultAgents": {
           "type": "array",
-          "default": ["claude-code"],
+          "default": [
+            "claude-code"
+          ],
           "items": {
             "type": "string",
-            "enum": ["claude-code", "cursor", "cline"]
+            "enum": [
+              "claude-code",
+              "cursor",
+              "cline"
+            ]
           },
           "description": "Default agents to install skills to"
         },
         "skills.defaultScope": {
           "type": "string",
-          "enum": ["project", "global"],
+          "enum": [
+            "project",
+            "global"
+          ],
           "default": "global",
           "description": "Default installation scope (project or global)"
         },
@@ -95,6 +114,11 @@
           "type": "number",
           "default": 7,
           "description": "Cache expiry time in days"
+        },
+        "skills.skipInstallPrompts": {
+          "type": "boolean",
+          "default": false,
+          "description": "Skip prompts when installing skills - use default agents and scope directly"
         }
       }
     }
@@ -104,18 +128,25 @@
     "compile": "tsc -p ./",
     "watch": "tsc -watch -p ./",
     "build-webview": "cd webview && npm run build",
-    "dev-webview": "cd webview && npm run dev"
+    "dev-webview": "cd webview && npm run dev",
+    "test": "node ./out/test/runTest.js"
   },
   "devDependencies": {
+    "@types/glob": "^8.1.0",
+    "@types/mocha": "^10.0.10",
     "@types/node": "^20.x",
     "@types/vscode": "^1.80.0",
     "@vitejs/plugin-react": "^4.2.0",
+    "@vscode/test-electron": "^2.5.2",
+    "glob": "^8.1.0",
+    "mocha": "^10.8.2",
     "typescript": "^5.3.0",
     "vite": "^5.0.0"
   },
   "dependencies": {
     "gray-matter": "^4.0.3",
     "react": "^18.2.0",
-    "react-dom": "^18.2.0"
+    "react-dom": "^18.2.0",
+    "simple-git": "^3.32.3"
   }
 }

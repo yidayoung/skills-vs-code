@@ -1,130 +1,185 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { vscode } from '../vscode';
-
-interface SkillCardProps {
-  id: string;
-  name: string;
-  description: string;
-  repository?: string;
-  stars?: number;
-  updatedAt?: string;
-  installed?: boolean;
-  hasUpdate?: boolean;
-  onInstall?: () => void;
-  onUpdate?: () => void;
-  onRemove?: () => void;
-  onViewDetails?: () => void;
-}
+import { SkillCardProps, getAgentTagConfig } from '../types';
 
 export const SkillCard: React.FC<SkillCardProps> = ({
   id,
   name,
   description,
-  repository,
-  stars,
-  updatedAt,
+  agentType,
+  scope,
   installed = false,
   hasUpdate = false,
+  repository,
+  skillMdUrl,
+  source,
+  stars,
+  updatedAt,
   onInstall,
-  onUpdate,
   onRemove,
+  onUpdate,
   onViewDetails
 }) => {
-  const handleViewDetails = () => {
+  const [isHovered, setIsHovered] = useState(false);
+  const [showMenu, setShowMenu] = useState(false);
+
+  // Ensure tagConfig is never undefined
+  const tagConfig = getAgentTagConfig(agentType) || {
+    label: agentType.replace('-', ' ').replace(/^\w/, c => c.toUpperCase()),
+    color: '#6B7280',
+    bg: 'rgba(107, 114, 128, 0.1)',
+    borderColor: 'rgba(107, 114, 128, 0.2)',
+  };
+
+  const handleCardClick = () => {
     if (onViewDetails) {
       onViewDetails();
     } else {
       vscode.postMessage({
         type: 'viewSkill',
-        skill: { id, name, description, repository }
+        skill: {
+          id,
+          name,
+          description,
+          repository,
+          skillMdUrl,
+          source,
+          agentType,
+          scope
+        }
       });
     }
   };
 
+  const handleMenuClick = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setShowMenu(!showMenu);
+  };
+
+  const handleAction = (action: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setShowMenu(false);
+
+    switch (action) {
+      case 'install':
+        onInstall?.();
+        break;
+      case 'remove':
+        onRemove?.();
+        break;
+      case 'update':
+        onUpdate?.();
+        break;
+      case 'viewDetails':
+        handleCardClick();
+        break;
+    }
+  };
+
   return (
-    <div className={`skill-card ${installed ? 'installed' : ''} ${hasUpdate ? 'has-update' : ''}`}>
-      {/* Card Header */}
+    <div
+      className={`skill-card ${scope} ${isHovered ? 'hovered' : ''}`}
+      onClick={handleCardClick}
+      onMouseEnter={() => setIsHovered(true)}
+      onMouseLeave={() => {
+        setIsHovered(false);
+        setShowMenu(false);
+      }}
+    >
+      {/* IDE Tag + Title + Actions Row */}
       <div className="skill-card-header">
-        <h3 className="skill-name">{name}</h3>
-        {installed && (
-          <span className="badge installed-badge">Installed</span>
-        )}
-        {hasUpdate && (
-          <span className="badge update-badge">Update Available</span>
-        )}
-      </div>
+        <div className="skill-header-left">
+          {/* IDE Tag - only show for installed skills that are not universal */}
+          {installed && agentType !== 'universal' && (
+            <span
+              className="ide-tag"
+              style={{
+                backgroundColor: tagConfig.bg,
+                color: tagConfig.color,
+                borderColor: tagConfig.borderColor
+              }}
+            >
+              {tagConfig.label}
+            </span>
+          )}
 
-      {/* Description */}
-      <p className="skill-description">{description}</p>
-
-      {/* Metadata */}
-      {(repository || stars || updatedAt) && (
-        <div className="skill-metadata">
-          {repository && (
-            <span className="metadata-item">
-              <span className="codicon codicon-repository" aria-hidden="true" />
-              {repository.replace('https://github.com/', '')}
-            </span>
-          )}
-          {stars !== undefined && stars > 0 && (
-            <span className="metadata-item">
-              <span className="codicon codicon-star-full" aria-hidden="true" />
-              {stars}
-            </span>
-          )}
-          {updatedAt && (
-            <span className="metadata-item">
-              <span className="codicon codicon-clock" aria-hidden="true" />
-              {new Date(updatedAt).toLocaleDateString()}
-            </span>
-          )}
+          {/* Skill Name */}
+          <h3 className="skill-name">{name}</h3>
         </div>
-      )}
 
-      {/* Actions */}
-      <div className="skill-actions">
-        <button
-          className="action-button secondary"
-          onClick={handleViewDetails}
-          title="View skill details"
-        >
-          <span className="codicon codicon-preview" aria-hidden="true" />
-          View
-        </button>
+        {/* Three-dot Menu (visible on hover) */}
+        <div className="skill-actions-wrapper" style={{ opacity: isHovered ? 1 : 0 }}>
+          <div className="action-menu">
+            <button
+              className="menu-button"
+              onClick={handleMenuClick}
+              title="操作"
+            >
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+                <circle cx="8" cy="3" r="1.5"/>
+                <circle cx="8" cy="8" r="1.5"/>
+                <circle cx="8" cy="13" r="1.5"/>
+              </svg>
+            </button>
 
-        {!installed && onInstall && (
-          <button
-            className="action-button primary"
-            onClick={onInstall}
-            title="Install skill"
-          >
-            <span className="codicon codicon-cloud-download" aria-hidden="true" />
-            Install
-          </button>
-        )}
-
-        {installed && onRemove && (
-          <button
-            className="action-button danger"
-            onClick={onRemove}
-            title="Remove skill"
-          >
-            <span className="codicon codicon-trash" aria-hidden="true" />
-            Remove
-          </button>
-        )}
-
-        {hasUpdate && onUpdate && (
-          <button
-            className="action-button primary"
-            onClick={onUpdate}
-            title="Update skill"
-          >
-            <span className="codicon codicon-sync" aria-hidden="true" />
-            Update
-          </button>
-        )}
+            {showMenu && (
+              <div className="dropdown-menu">
+                {installed ? (
+                  <>
+                    <div
+                      className="menu-item"
+                      onClick={(e) => handleAction('viewDetails', e)}
+                    >
+                      打开文档
+                    </div>
+                    {hasUpdate && (
+                      <div
+                        className="menu-item"
+                        onClick={(e) => handleAction('update', e)}
+                      >
+                        更新
+                      </div>
+                    )}
+                    <div className="menu-divider"/>
+                    <div
+                      className="menu-item danger"
+                      onClick={(e) => handleAction('remove', e)}
+                    >
+                      卸载
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <div
+                      className="menu-item primary"
+                      onClick={(e) => handleAction('install', e)}
+                    >
+                      安装
+                    </div>
+                    {repository && (
+                      <div
+                        className="menu-item"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          vscode.postMessage({
+                            type: 'openRepository',
+                            url: repository
+                          });
+                        }}
+                      >
+                        查看仓库
+                      </div>
+                    )}
+                  </>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
       </div>
+
+      {/* Description (2-line clamp) */}
+      <p className="skill-description">{description}</p>
     </div>
   );
 };
