@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { vscode } from '../vscode';
 import { SkillCardProps, getAgentTagConfig } from '../types';
+import { getMarketColorConfig } from '../utils/marketColors';
 
 export const SkillCard: React.FC<SkillCardProps> = ({
   id,
@@ -15,6 +16,7 @@ export const SkillCard: React.FC<SkillCardProps> = ({
   source,
   stars,
   updatedAt,
+  marketName,
   onInstall,
   onRemove,
   onUpdate,
@@ -30,6 +32,17 @@ export const SkillCard: React.FC<SkillCardProps> = ({
     bg: 'rgba(107, 114, 128, 0.1)',
     borderColor: 'rgba(107, 114, 128, 0.2)',
   };
+
+  // 市场标签配置（未安装时使用）
+  const isValidMarketName = marketName?.trim().length > 0;
+  const marketTagConfig = isValidMarketName && !installed
+    ? getMarketColorConfig(marketName.trim())
+    : null;
+
+  // IDE 标签配置（已安装时使用）
+  const ideTagConfig = installed && agentType !== 'universal'
+    ? tagConfig
+    : null;
 
   const handleCardClick = () => {
     if (onViewDetails) {
@@ -89,19 +102,30 @@ export const SkillCard: React.FC<SkillCardProps> = ({
       {/* IDE Tag + Title + Actions Row */}
       <div className="skill-card-header">
         <div className="skill-header-left">
-          {/* IDE Tag - only show for installed skills that are not universal */}
-          {installed && agentType !== 'universal' && (
+          {/* 市场标签（未安装时）或 IDE 标签（已安装时） */}
+          {marketTagConfig ? (
+            <span
+              className="market-tag"
+              style={{
+                backgroundColor: marketTagConfig.bg,
+                color: marketTagConfig.color,
+                borderColor: marketTagConfig.borderColor,
+              }}
+            >
+              {marketName}
+            </span>
+          ) : ideTagConfig ? (
             <span
               className="ide-tag"
               style={{
-                backgroundColor: tagConfig.bg,
-                color: tagConfig.color,
-                borderColor: tagConfig.borderColor
+                backgroundColor: ideTagConfig.bg,
+                color: ideTagConfig.color,
+                borderColor: ideTagConfig.borderColor,
               }}
             >
-              {tagConfig.label}
+              {ideTagConfig.label}
             </span>
-          )}
+          ) : null}
 
           {/* Skill Name */}
           <h3 className="skill-name">{name}</h3>
