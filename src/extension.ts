@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import { SkillSidebarProvider } from './webview/SkillSidebarProvider';
 
 export function activate(context: vscode.ExtensionContext) {
   console.log('Skills VSCode extension is now active!');
@@ -6,13 +7,11 @@ export function activate(context: vscode.ExtensionContext) {
   const disposable = vscode.commands.registerCommand(
     'skills.showSidebar',
     () => {
-      vscode.window.showInformationMessage('Skills Sidebar coming soon!');
+      SkillSidebarProvider.show(context);
     }
   );
 
   context.subscriptions.push(disposable);
 }
 
-export function deactivate() {
-  console.log('Skills VSCode extension is now deactivated!');
-}
+export function deactivate() {}
