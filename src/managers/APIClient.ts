@@ -7,6 +7,7 @@ import { SkillSearchResult, SkillAPIConfig } from '../types';
 import { SkillCache } from './SkillCache';
 import { cloneRepo, cleanupTempDir } from '../utils/git';
 import { discoverSkillsInPath } from '../utils/skills';
+import { parseSource, buildSkillId, normalizeRepositoryUrl as normalizeRepoUrl } from '../utils/source-parser';
 
 export class APIClient {
   private skillCache?: SkillCache;
@@ -94,10 +95,12 @@ export class APIClient {
       // skills.sh API returns: { skills: [{ id, name, installs, source }] }
       if (responseData && typeof responseData === 'object') {
         if (Array.isArray(responseData.skills)) {
-          return responseData.skills.map((skill: any) => this.normalizeSkillResult(skill, config.url));
+          const marketName = config.name || new URL(config.url).hostname;
+          return responseData.skills.map((skill: any) => this.normalizeSkillResult(skill, config.url, marketName));
         } else if (Array.isArray(responseData)) {
           // Handle direct array response
-          return responseData.map((skill: any) => this.normalizeSkillResult(skill, config.url));
+          const marketName = config.name || new URL(config.url).hostname;
+          return responseData.map((skill: any) => this.normalizeSkillResult(skill, config.url, marketName));
         }
       }
 
@@ -108,10 +111,10 @@ export class APIClient {
     }
   }
 
-  private normalizeSkillResult(skill: any, _apiUrl: string): SkillSearchResult {
+  private normalizeSkillResult(skill: any, _apiUrl: string, marketName?: string): SkillSearchResult {
     // Handle skills.sh API format: { id, name, installs, source }
     if (skill.source) {
-      return this.parseSourceField(skill);
+      return this.parseSourceField(skill, marketName);
     }
 
     // Handle generic API format (already has full URLs)
@@ -125,7 +128,8 @@ export class APIClient {
       version: skill.version || skill.commit || skill.tag,
       stars: skill.stars || skill.star_count || 0,
       installs: skill.installs,
-      updatedAt: skill.updatedAt || skill.updated_at || skill.last_updated
+      updatedAt: skill.updatedAt || skill.updated_at || skill.last_updated,
+      marketName  // 添加 marketName 字段
     };
   }
 
@@ -140,104 +144,85 @@ export class APIClient {
    * @returns 规范化后的完整仓库 URL
    */
   static normalizeRepositoryUrl(input: string): string {
-    // 如果已经是完整的 HTTP(S) URL，验证有效性
-    if (input.startsWith('http://') || input.startsWith('https://')) {
-      try {
-        const url = new URL(input);
-        // Check if hostname is valid (contains a dot like github.com, gitlab.com)
-        if (url.hostname && url.hostname.includes('.')) {
-          return input;
-        }
-        // Hostname is invalid (e.g., "wshobson"), fall through to fix
-      } catch {
-        // Invalid URL, try to fix it
-      }
-    }
-
-    // Remove https:// or http:// prefix if present for easier parsing
-    let source = input;
-    if (source.startsWith('https://') || source.startsWith('http://')) {
-      source = source.replace(/^https?:\/\//, '');
-    }
-
-    const parts = source.split('/');
-    if (parts.length < 2) {
-      // Invalid format, return as is
-      return input;
-    }
-
-    const [first, ...rest] = parts;
-
-    // Check if first part is a valid hostname (contains a dot)
-    // If yes, it's "hostname/owner/repo" format
-    // If no, it's "owner/repo" format, default to GitHub
-    let hostname: string;
-    let repoPath: string;
-
-    if (first.includes('.')) {
-      // Has dot, treat as hostname: gitlab.com/owner/repo or github.com/owner/repo
-      hostname = first;
-      // rest contains [owner, repo, ...path]
-      repoPath = rest.join('/');
-    } else {
-      // No dot, treat as owner: owner/repo -> default to github.com
-      hostname = 'github.com';
-      // first is owner, rest contains [repo, ...path]
-      repoPath = [first, ...rest].join('/');
-    }
-
-    // Remove .git suffix if present
-    const cleanRepoPath = repoPath.replace(/\.git$/, '');
-
-    // Build repository URL
-    return `https://${hostname}/${cleanRepoPath}.git`;
+    return normalizeRepoUrl(input);
   }
 
   /**
    * Parse the 'source' field from skill data and convert to normalized format
-   * Supports multiple formats:
+   * 使用新的 source-parser 模块
+   *
+   * 支持多种格式：
    * - GitHub: "owner/repo" or "https://github.com/owner/repo"
    * - GitLab: "gitlab.com/owner/repo" or "https://gitlab.com/owner/repo"
    * - Custom Git host: "git.example.com/owner/repo" or "https://git.example.com/owner/repo"
    */
-  private parseSourceField(skill: any): SkillSearchResult {
+  private parseSourceField(skill: any, marketName?: string): SkillSearchResult {
     const source = skill.source;
 
-    // Use normalizeRepositoryUrl to get the correct repository URL
-    const repository = APIClient.normalizeRepositoryUrl(source);
-    console.log(`[parseSourceField] source="${source}" -> repository="${repository}"`);
+    // 使用新的 source parser
+    const parsed = parseSource(source);
+    console.log(`[parseSourceField] source="${source}" -> type=${parsed.type}`);
 
-    // Parse the normalized URL to extract components for skill.md URL
-    let hostname = 'github.com';
-    let cleanRepoPath = '';
-
-    try {
-      const url = new URL(repository);
-      hostname = url.hostname;
-
-      // Extract owner/repo path, remove .git suffix
-      let pathname = url.pathname.replace(/\.git$/, '');
-      // Remove leading slash
-      cleanRepoPath = pathname.startsWith('/') ? pathname.slice(1) : pathname;
-    } catch {
-      // If URL parsing fails, use source as-is for the path
-      cleanRepoPath = source.replace(/^https?:\/\//, '').replace(/\.git$/, '');
-    }
-
-    // Build skill.md URL based on host
+    let repository = '';
     let skillMdUrl = '';
-    if (hostname === 'github.com') {
-      skillMdUrl = `https://raw.githubusercontent.com/${cleanRepoPath}/HEAD/SKILL.md`;
-    } else if (hostname === 'gitlab.com' || hostname.includes('gitlab')) {
-      // GitLab format: https://gitlab.com/owner/repo/-/raw/main/SKILL.md
-      skillMdUrl = `https://${hostname}/${cleanRepoPath}/-/raw/main/SKILL.md`;
-    } else {
-      // Generic Git host - try common patterns
-      skillMdUrl = `https://${hostname}/${cleanRepoPath}/-/raw/main/SKILL.md`;
+    let id = skill.id || source;
+
+    // 根据解析结果构建 repository URL 和 skill.md URL
+    switch (parsed.type) {
+      case 'github': {
+        repository = parsed.url;
+        // 构建原始内容 URL
+        const path = parsed.subpath ? `${parsed.subpath}/` : '';
+        skillMdUrl = `https://raw.githubusercontent.com/${parsed.owner}/${parsed.repo}/HEAD/${path}SKILL.md`;
+        id = `${parsed.owner}/${parsed.repo}`;
+        break;
+      }
+      case 'gitlab': {
+        repository = parsed.url;
+        const path = parsed.subpath ? `${parsed.subpath}/` : '';
+        skillMdUrl = `https://${parsed.hostname}/${parsed.repoPath}/-/raw/HEAD/${path}SKILL.md`;
+        id = `${parsed.hostname}/${parsed.repoPath}`;
+        break;
+      }
+      case 'local': {
+        // 本地路径不应该出现在 API 返回中，但作为后备处理
+        repository = parsed.localPath;
+        skillMdUrl = '';
+        id = parsed.localPath;
+        break;
+      }
+      default:
+        // 对于其他类型（git, direct-url, well-known），使用解析后的 URL
+        repository = parsed.url;
+        // 尝试构建 skill.md URL（仅对于 git 类型）
+        if (parsed.type === 'git') {
+          try {
+            const url = new URL(repository);
+            const hostname = url.hostname;
+            let cleanRepoPath = url.pathname.replace(/\.git$/, '');
+            if (cleanRepoPath.startsWith('/')) {
+              cleanRepoPath = cleanRepoPath.slice(1);
+            }
+
+            if (hostname === 'github.com') {
+              skillMdUrl = `https://raw.githubusercontent.com/${cleanRepoPath}/HEAD/SKILL.md`;
+            } else if (hostname === 'gitlab.com' || hostname.includes('gitlab')) {
+              skillMdUrl = `https://${hostname}/${cleanRepoPath}/-/raw/HEAD/SKILL.md`;
+            } else {
+              skillMdUrl = `https://${hostname}/${cleanRepoPath}/-/raw/HEAD/SKILL.md`;
+            }
+          } catch {
+            // URL 解析失败
+            skillMdUrl = '';
+          }
+        }
+        break;
     }
+
+    console.log(`[parseSourceField] -> repository="${repository}", skillMdUrl="${skillMdUrl}"`);
 
     return {
-      id: skill.id || cleanRepoPath,
+      id,
       name: skill.name || 'Unknown',
       description: skill.installs
         ? `${this.formatInstalls(skill.installs)}`
@@ -248,7 +233,8 @@ export class APIClient {
       version: undefined,
       stars: 0,
       installs: skill.installs,
-      updatedAt: undefined
+      updatedAt: undefined,
+      marketName  // 添加 marketName 字段
     };
   }
 
@@ -360,8 +346,8 @@ export class APIClient {
       throw new Error('APIClient not initialized with context');
     }
 
-    // Normalize repository URL to ensure it's in a valid format
-    const normalizedUrl = APIClient.normalizeRepositoryUrl(repositoryUrl);
+    // 使用新的 source parser 规范化 URL
+    const normalizedUrl = normalizeRepoUrl(repositoryUrl);
     console.log(`[APIClient] Normalized URL: ${repositoryUrl} -> ${normalizedUrl}`);
 
     // Check cache first
