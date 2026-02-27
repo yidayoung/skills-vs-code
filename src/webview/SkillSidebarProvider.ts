@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
+import { setupMessageHandlers } from './messages/handlers';
 
 export class SkillSidebarProvider {
   public static currentPanel: SkillSidebarProvider | undefined;
@@ -8,13 +9,17 @@ export class SkillSidebarProvider {
 
   private constructor(
     panel: vscode.WebviewPanel,
-    private readonly _extensionUri: vscode.ExtensionContext['extensionUri']
+    private readonly _extensionUri: vscode.ExtensionContext['extensionUri'],
+    context: vscode.ExtensionContext
   ) {
     this._panel = panel;
 
     this._panel.onDidDispose(() => this.dispose(), null, this._disposables);
 
     this._panel.webview.html = this._getHtmlForWebview(this._panel.webview);
+
+    // Setup message handlers
+    setupMessageHandlers(panel, context);
   }
 
   public static show(context: vscode.ExtensionContext) {
@@ -41,7 +46,8 @@ export class SkillSidebarProvider {
 
     SkillSidebarProvider.currentPanel = new SkillSidebarProvider(
       panel,
-      context.extensionUri
+      context.extensionUri,
+      context
     );
   }
 
