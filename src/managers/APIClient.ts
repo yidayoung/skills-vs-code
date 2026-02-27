@@ -172,19 +172,19 @@ export class APIClient {
     // If yes, it's "hostname/owner/repo" format
     // If no, it's "owner/repo" format, default to GitHub
     let hostname: string;
-    let owner: string;
+    let repoPath: string;
 
     if (first.includes('.')) {
       // Has dot, treat as hostname: gitlab.com/owner/repo or github.com/owner/repo
       hostname = first;
-      owner = rest[0] || '';
+      // rest contains [owner, repo, ...path]
+      repoPath = rest.join('/');
     } else {
       // No dot, treat as owner: owner/repo -> default to github.com
       hostname = 'github.com';
-      owner = first;
+      // first is owner, rest contains [repo, ...path]
+      repoPath = [first, ...rest].join('/');
     }
-
-    const repoPath = rest.length > 0 ? [owner, ...rest.slice(1)].join('/') : owner;
 
     // Remove .git suffix if present
     const cleanRepoPath = repoPath.replace(/\.git$/, '');
