@@ -34,9 +34,10 @@ export const SkillCard: React.FC<SkillCardProps> = ({
   };
 
   // 市场标签配置（未安装时使用）
-  const isValidMarketName = marketName?.trim().length > 0;
+  const trimmedMarketName = marketName?.trim();
+  const isValidMarketName = trimmedMarketName != null && trimmedMarketName.length > 0;
   const marketTagConfig = isValidMarketName && !installed
-    ? getMarketColorConfig(marketName.trim())
+    ? getMarketColorConfig(trimmedMarketName)
     : null;
 
   // IDE 标签配置（已安装时使用）
