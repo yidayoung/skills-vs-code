@@ -399,7 +399,8 @@ body {
   text-overflow: ellipsis;
 }
 
-/* IDE Tag */
+/* Market and IDE tag styles */
+.market-tag,
 .ide-tag {
   display: inline-flex;
   align-items: center;
@@ -407,11 +408,19 @@ body {
   border-radius: 4px;
   font-size: 11px;
   font-weight: 500;
+  border: 1px solid;
   margin-right: 8px;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
   white-space: nowrap;
   flex-shrink: 0;
+  max-width: 120px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* IDE tag specific styles */
+.ide-tag {
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
 }
 
 /* Actions wrapper - smooth fade in/out */
