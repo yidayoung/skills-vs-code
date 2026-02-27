@@ -83,7 +83,7 @@ export function activate(context: vscode.ExtensionContext) {
           const items = results.map(skill => ({
             label: skill.name,
             description: skill.description || '',
-            detail: skill.repository || skill.skillMdUrl || '',
+            detail: skill.repository || '',
             skill
           }));
 
@@ -122,7 +122,7 @@ export function activate(context: vscode.ExtensionContext) {
   const viewSkillCommand = vscode.commands.registerCommand(
     'skills.viewSkill',
     async (skill) => {
-      await SkillDetailProvider.show(context, skill);
+      await SkillDetailProvider.show(skill, { skillCache, apiClient });
     }
   );
 
