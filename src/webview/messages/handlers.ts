@@ -5,6 +5,7 @@ import { SkillManager } from '../../managers/SkillManager';
 import { APIClient } from '../../managers/APIClient';
 import { SkillCache } from '../../managers/SkillCache';
 import { UserPreferences } from '../../managers/UserPreferences';
+import { SkillDetailProvider } from '../../editors/SkillDetailProvider';
 
 export function setupMessageHandlers(
   panel: vscode.WebviewPanel,
@@ -225,39 +226,7 @@ async function handleViewSkill(
   skill: any
 ) {
   try {
-    let content: string | null = null;
-
-    // Check if it's a local skill (has localPath)
-    if (skill.source?.type === 'local' && skill.source.localPath) {
-      // Read from local filesystem
-      const fs = await import('fs/promises');
-      const skillMdPath = path.join(skill.source.localPath, 'SKILL.md');
-      content = await fs.readFile(skillMdPath, 'utf-8');
-    } else if (skill.skillMdUrl) {
-      // Try cache first
-      content = await managers.skillCache.getCachedSkill(skill.skillMdUrl);
-
-      // If not in cache, fetch from API
-      if (!content) {
-        content = await managers.apiClient.fetchSkillMd(skill.skillMdUrl);
-
-        // Cache the content
-        if (content) {
-          await managers.skillCache.setCachedSkill(skill.skillMdUrl, content);
-        }
-      }
-    }
-
-    if (content) {
-      // Create a new untitled document with the skill content
-      const doc = await vscode.workspace.openTextDocument({
-        language: 'markdown',
-        content
-      });
-      await vscode.window.showTextDocument(doc);
-    } else {
-      vscode.window.showErrorMessage('Could not load skill content');
-    }
+    await SkillDetailProvider.show(context, skill, managers);
   } catch (error) {
     vscode.window.showErrorMessage(`Failed to view skill: ${error}`);
   }

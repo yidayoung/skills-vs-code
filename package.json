@@ -1,7 +1,7 @@
 {
   "name": "skills-vscode",
   "displayName": "Skills Manager",
-  "description": "Manage agent skills from VSCode",
+  "description": "Manage agent skills from VSCode - Install, update, and discover skills for your AI coding assistants",
   "version": "0.1.0",
   "publisher": "your-publisher-name",
   "engines": {
@@ -9,6 +9,14 @@
   },
   "categories": [
     "Other"
+  ],
+  "keywords": [
+    "skills",
+    "agents",
+    "claude",
+    "cursor",
+    "ai",
+    "assistant"
   ],
   "activationEvents": [
     "onStartupFinished"
@@ -18,10 +26,78 @@
     "commands": [
       {
         "command": "skills.showSidebar",
-        "title": "Show Skills Sidebar",
-        "icon": "$(sidebar)"
+        "title": "Skills: Show Sidebar",
+        "icon": "$(extensions)",
+        "category": "Skills"
+      },
+      {
+        "command": "skills.refresh",
+        "title": "Skills: Refresh Installed Skills",
+        "icon": "$(refresh)",
+        "category": "Skills"
+      },
+      {
+        "command": "skills.search",
+        "title": "Skills: Search Marketplace",
+        "icon": "$(search)",
+        "category": "Skills"
+      },
+      {
+        "command": "skills.installFromURI",
+        "title": "Skills: Install from URL...",
+        "category": "Skills"
       }
-    ]
+    ],
+    "keybindings": [
+      {
+        "command": "skills.showSidebar",
+        "key": "ctrl+shift+s",
+        "mac": "cmd+shift+s",
+        "when": "!sidebarFocus"
+      }
+    ],
+    "configuration": {
+      "title": "Skills Manager",
+      "properties": {
+        "skills.apiUrls": {
+          "type": "array",
+          "default": [
+            {
+              "url": "https://api.skills.sh/search",
+              "enabled": true,
+              "name": "Skills.sh",
+              "priority": 100
+            }
+          ],
+          "description": "API URLs for the skills marketplace"
+        },
+        "skills.defaultAgents": {
+          "type": "array",
+          "default": ["claude-code"],
+          "items": {
+            "type": "string",
+            "enum": ["claude-code", "cursor", "cline"]
+          },
+          "description": "Default agents to install skills to"
+        },
+        "skills.defaultScope": {
+          "type": "string",
+          "enum": ["project", "global"],
+          "default": "global",
+          "description": "Default installation scope (project or global)"
+        },
+        "skills.cacheMaxSize": {
+          "type": "number",
+          "default": 52428800,
+          "description": "Maximum cache size in bytes (default: 50MB)"
+        },
+        "skills.cacheExpiryDays": {
+          "type": "number",
+          "default": 7,
+          "description": "Cache expiry time in days"
+        }
+      }
+    }
   },
   "scripts": {
     "vscode:prepublish": "npm run compile && npm run build-webview",
