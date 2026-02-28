@@ -56,12 +56,16 @@
 
 | 配置 | 说明 | 默认值 |
 | --- | --- | --- |
-| `skills.apiUrls` | 市场基础 URL（不带路径），扩展会固定拼接 `/api/search`。 | `[{ "url": "https://skills.sh", "enabled": true, "name": "Skills.sh", "priority": 100 }]` |
+| `skills.apiUrls` | 市场基础 URL（不带路径），扩展会拼接固定 API 路径（例如 `/api/search`、`/api/skills/all-time/{page}`）。 | `[{ "url": "https://skills.sh", "enabled": true, "name": "Skills.sh", "priority": 100 }]` |
 | `skills.defaultAgents` | 安装技能时默认目标 Agent。 | `["claude-code"]` |
 | `skills.defaultScope` | 默认安装作用域。 | `"global"` |
 | `skills.cacheMaxSize` | 下载文档缓存的本地最大大小，单位 MB。 | `50` |
 | `skills.cacheExpiryDays` | 下载文档缓存过期天数。 | `7` |
 | `skills.skipInstallPrompts` | 跳过安装流程中的交互提示，直接使用默认值。 | `false` |
+
+## 接口文档
+
+- 市场接口规范: [docs/api/api.md](./docs/api/api.md)
 
 ## 命令
 

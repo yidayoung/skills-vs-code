@@ -28,6 +28,24 @@ export interface SkillSource {
   type: 'local' | 'remote';
   /** GitHub repository: owner/repo */
   repository?: string;
+  /** Original source URL used for installation */
+  sourceUrl?: string;
+  /** Source provider type */
+  sourceType?: 'github' | 'gitlab' | 'git';
+  /** Source owner/repo for update checks */
+  ownerRepo?: string;
+  /** Relative path to SKILL.md in source repository */
+  skillPath?: string;
+  /** Marketplace skill identifier for matching installed skills */
+  skillId?: string;
+  /** Branch/ref used for source */
+  sourceRef?: string;
+  /** Last known source folder hash */
+  skillFolderHash?: string;
+  /** Local installed skill folder hash */
+  installedHash?: string;
+  /** Last fetched remote skill folder hash */
+  lastRemoteHash?: string;
   /** API URL this came from */
   apiUrl?: string;
   /** Local file system path */

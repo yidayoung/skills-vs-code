@@ -4,12 +4,20 @@ import { APIClient } from '../managers/APIClient';
 import { SkillSearchResult, Skill } from '../types';
 
 type SkillLike = Skill | SkillSearchResult;
+type OpenMode = 'preview' | 'direct';
 
 /**
  * Type guard to check if a skill is a local Skill
  */
-function isLocalSkill(skill: SkillLike): skill is Skill {
-  return 'source' in skill && skill.source?.type === 'local';
+function getLocalSkillMdPath(skill: SkillLike): string | null {
+  if (!('source' in skill)) {
+    return null;
+  }
+  const skillMdPath = skill.source?.skillMdPath;
+  if (typeof skillMdPath !== 'string' || skillMdPath.trim().length === 0) {
+    return null;
+  }
+  return skillMdPath;
 }
 
 /**
@@ -20,6 +28,11 @@ function isSearchResult(skill: SkillLike): skill is SkillSearchResult {
 }
 
 export class SkillDetailProvider {
+  private static async openFileDirectly(uri: vscode.Uri): Promise<void> {
+    const doc = await vscode.workspace.openTextDocument(uri);
+    await vscode.window.showTextDocument(doc, { preview: false });
+  }
+
   private static async openMarkdownInEditor(uri: vscode.Uri): Promise<void> {
     try {
       // Prefer VS Code's built-in Markdown preview/editor when available.
@@ -38,14 +51,28 @@ export class SkillDetailProvider {
     managers?: {
       skillCache: SkillCache;
       apiClient: APIClient;
+    },
+    options?: {
+      openMode?: OpenMode;
     }
   ): Promise<void> {
     try {
-      // For local skills - open the file directly
-      if (isLocalSkill(skill) && skill.source.skillMdPath) {
-        const uri = vscode.Uri.file(skill.source.skillMdPath);
-        await SkillDetailProvider.openMarkdownInEditor(uri);
-        return; // Success, exit early
+      // For installed skills, prefer the local SKILL.md file regardless of source type.
+      const localSkillMdPath = getLocalSkillMdPath(skill);
+      if (localSkillMdPath) {
+        try {
+          const uri = vscode.Uri.file(localSkillMdPath);
+          const openMode = options?.openMode || 'preview';
+          if (openMode === 'direct') {
+            await SkillDetailProvider.openFileDirectly(uri);
+          } else {
+            await SkillDetailProvider.openMarkdownInEditor(uri);
+          }
+          return; // Success, exit early
+        } catch (error) {
+          console.warn(`Failed to open local skill file at ${localSkillMdPath}:`, error);
+          // Continue to remote fallback below.
+        }
       }
 
       // For remote skills - try cache first, then fetch via repository clone

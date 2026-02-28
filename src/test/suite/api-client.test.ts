@@ -29,7 +29,7 @@ suite('APIClient Tests Suite', () => {
     results.forEach(result => {
       assert.ok(result.id);
       assert.ok(result.name);
-      assert.ok(result.description);
+      assert.ok(typeof result.description === 'string');
     });
   });
 
@@ -106,5 +106,125 @@ suite('APIClient Tests Suite', () => {
     // Should return empty results since all APIs are disabled
     assert.ok(Array.isArray(results));
     assert.strictEqual(results.length, 0);
+  });
+
+  test('APIClient should fetch leaderboard skills from /api/skills/{view}/{page}', async () => {
+    const client = new APIClient([
+      {
+        url: 'https://skills.sh',
+        enabled: true,
+        name: 'Skills.sh',
+        priority: 100
+      }
+    ]);
+
+    (client as any).makeHttpsRequest = async (requestUrl: string) => {
+      assert.ok(requestUrl.includes('/api/skills/all-time/0'));
+      return {
+        skills: [
+          {
+            id: 'vercel-labs/skills/find-skills',
+            source: 'vercel-labs/skills',
+            skillId: 'find-skills',
+            name: 'find-skills',
+            installs: 1000
+          }
+        ],
+        total: 1,
+        page: 0,
+        hasMore: false
+      };
+    };
+
+    const result = await client.getLeaderboardSkills('all-time', 0);
+    assert.strictEqual(result.skills.length, 1);
+    assert.strictEqual(result.total, 1);
+    assert.strictEqual(result.page, 0);
+    assert.strictEqual(result.hasMore, false);
+  });
+
+  test('APIClient should deduplicate leaderboard skills across multiple endpoints', async () => {
+    const client = new APIClient([
+      {
+        url: 'https://skills.sh',
+        enabled: true,
+        name: 'Primary',
+        priority: 100
+      },
+      {
+        url: 'https://skills.sh',
+        enabled: true,
+        name: 'Mirror',
+        priority: 50
+      }
+    ]);
+
+    (client as any).makeHttpsRequest = async () => ({
+      skills: [
+        {
+          id: 'vercel-labs/skills/find-skills',
+          source: 'vercel-labs/skills',
+          skillId: 'find-skills',
+          name: 'find-skills',
+          installs: 1000
+        }
+      ],
+      total: 1,
+      page: 0,
+      hasMore: false
+    });
+
+    const result = await client.getLeaderboardSkills('all-time', 0);
+    assert.strictEqual(result.skills.length, 1);
+  });
+
+  test('APIClient should return empty leaderboard response when all endpoints fail', async () => {
+    const client = new APIClient([
+      {
+        url: 'https://skills.sh',
+        enabled: true,
+        name: 'Skills.sh',
+        priority: 100
+      }
+    ]);
+
+    (client as any).makeHttpsRequest = async () => {
+      throw new Error('network error');
+    };
+
+    const result = await client.getLeaderboardSkills('all-time', 0);
+    assert.deepStrictEqual(result.skills, []);
+    assert.strictEqual(result.total, 0);
+    assert.strictEqual(result.page, 0);
+    assert.strictEqual(result.hasMore, false);
+  });
+
+  test('APIClient should derive skillId from source/id when leaderboard skillId is missing', async () => {
+    const client = new APIClient([
+      {
+        url: 'https://skills.sh',
+        enabled: true,
+        name: 'Skills.sh',
+        priority: 100
+      }
+    ]);
+
+    (client as any).makeHttpsRequest = async () => ({
+      skills: [
+        {
+          id: 'vercel-labs/skills/find-skills',
+          source: 'vercel-labs/skills',
+          name: 'find-skills',
+          installs: 1000
+        }
+      ],
+      total: 1,
+      page: 0,
+      hasMore: false
+    });
+
+    const result = await client.getLeaderboardSkills('all-time', 0);
+    assert.strictEqual(result.skills.length, 1);
+    assert.strictEqual(result.skills[0].skillId, 'find-skills');
   });
 });

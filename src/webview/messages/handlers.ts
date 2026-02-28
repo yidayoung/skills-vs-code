@@ -1,10 +1,11 @@
 import * as vscode from 'vscode';
-import { VSCodeMessage, SkillSearchResult } from '../../types';
+import { VSCodeMessage, SkillSearchResult, LeaderboardView, SkillAPIConfig, Skill } from '../../types';
 import { SkillManager } from '../../managers/SkillManager';
 import { APIClient } from '../../managers/APIClient';
 import { SkillCache } from '../../managers/SkillCache';
 import { UserPreferences } from '../../managers/UserPreferences';
 import { SkillDetailProvider } from '../../editors/SkillDetailProvider';
+import { parseSource } from '../../utils/source-parser';
 
 /**
  * 通用 Webview 接口
@@ -33,8 +34,23 @@ export function setupMessageHandlers(
         case 'requestInstalledSkills':
           await handleRequestInstalledSkills(webviewLike, managers);
           break;
+        case 'checkInstalledSkillUpdates':
+          await handleCheckInstalledSkillUpdates(webviewLike, managers);
+          break;
+        case 'requestMarketConfigs':
+          await handleRequestMarketConfigs(webviewLike);
+          break;
+        case 'saveMarketConfigs':
+          await handleSaveMarketConfigs(webviewLike, context, managers, message.configs);
+          break;
+        case 'testMarketConfig':
+          await handleTestMarketConfig(webviewLike, managers, message.config);
+          break;
         case 'search':
           await handleSearch(webviewLike, managers, message.query);
+          break;
+        case 'getLeaderboard':
+          await handleGetLeaderboard(webviewLike, managers, message.view, message.page, message.requestId);
           break;
         case 'getTrending':
           await handleGetTrending(webviewLike, managers);
@@ -49,7 +65,7 @@ export function setupMessageHandlers(
           await handleRemove(webviewLike, context, managers, message.skillId, message.agents, message.scope);
           break;
         case 'viewSkill':
-          await handleViewSkill(webviewLike, context, managers, message.skill);
+          await handleViewSkill(webviewLike, context, managers, message.skill, message.openMode);
           break;
         case 'openRepository':
           await handleOpenRepository(message.url);
@@ -114,6 +130,121 @@ async function handleRequestInstalledSkills(
   }
 }
 
+async function handleCheckInstalledSkillUpdates(
+  webviewLike: WebviewLike,
+  managers: { skillManager: SkillManager }
+) {
+  webviewLike.webview.postMessage({
+    type: 'skillsUpdateStatus',
+    data: { status: 'checking' }
+  });
+
+  try {
+    const skills = await managers.skillManager.listInstalledSkills();
+    const skillsWithUpdates = await managers.skillManager.checkUpdates(skills);
+
+    webviewLike.webview.postMessage({
+      type: 'installedSkills',
+      data: skillsWithUpdates
+    });
+    webviewLike.webview.postMessage({
+      type: 'skillsUpdateStatus',
+      data: { status: 'done' }
+    });
+  } catch (error) {
+    vscode.window.showErrorMessage(`Failed to check skill updates: ${error}`);
+    webviewLike.webview.postMessage({
+      type: 'skillsUpdateStatus',
+      data: { status: 'error' }
+    });
+  }
+}
+
+function getCurrentMarketConfigs(): SkillAPIConfig[] {
+  return vscode.workspace.getConfiguration('skills').get<SkillAPIConfig[]>('apiUrls', [
+    {
+      url: 'https://skills.sh',
+      enabled: true,
+      name: 'Skills.sh',
+      priority: 100
+    }
+  ]);
+}
+
+function normalizeMarketConfigs(configs: SkillAPIConfig[]): SkillAPIConfig[] {
+  return configs
+    .map((config, index) => ({
+      url: (config.url || '').trim(),
+      enabled: config.enabled !== false,
+      name: (config.name || '').trim() || undefined,
+      priority: typeof config.priority === 'number' ? config.priority : (100 - index)
+    }))
+    .filter(config => config.url.length > 0);
+}
+
+async function handleRequestMarketConfigs(webviewLike: WebviewLike) {
+  webviewLike.webview.postMessage({
+    type: 'marketConfigs',
+    data: getCurrentMarketConfigs()
+  });
+}
+
+async function handleSaveMarketConfigs(
+  webviewLike: WebviewLike,
+  context: vscode.ExtensionContext,
+  managers: { apiClient: APIClient },
+  configs: SkillAPIConfig[]
+) {
+  try {
+    const normalized = normalizeMarketConfigs(Array.isArray(configs) ? configs : []);
+    await vscode.workspace.getConfiguration('skills').update('apiUrls', normalized, true);
+    managers.apiClient = new APIClient(normalized, context);
+
+    webviewLike.webview.postMessage({
+      type: 'marketConfigsSaved',
+      data: normalized
+    });
+    webviewLike.webview.postMessage({
+      type: 'marketConfigs',
+      data: normalized
+    });
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    webviewLike.webview.postMessage({
+      type: 'marketConfigsSaveError',
+      error: errorMessage
+    });
+  }
+}
+
+async function handleTestMarketConfig(
+  webviewLike: WebviewLike,
+  managers: { apiClient: APIClient },
+  config: SkillAPIConfig
+) {
+  const startedAt = Date.now();
+  try {
+    const result = await managers.apiClient.testMarketConfig(config);
+    webviewLike.webview.postMessage({
+      type: 'testMarketConfigResult',
+      configUrl: config.url,
+      latencyMs: Date.now() - startedAt,
+      ...result
+    });
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    webviewLike.webview.postMessage({
+      type: 'testMarketConfigResult',
+      configUrl: config.url,
+      latencyMs: Date.now() - startedAt,
+      searchOk: false,
+      leaderboardOk: false,
+      searchError: errorMessage,
+      leaderboardError: errorMessage
+    });
+  }
+}
+
 async function handleSearch(
   webviewLike: WebviewLike,
   managers: { apiClient: APIClient },
@@ -151,6 +282,44 @@ async function handleGetTrending(
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
     console.error('Failed to fetch trending skills:', errorMessage);
+  }
+}
+
+async function handleGetLeaderboard(
+  webviewLike: WebviewLike,
+  managers: { apiClient: APIClient },
+  view: LeaderboardView,
+  page: number = 0,
+  requestId?: string
+) {
+  try {
+    webviewLike.webview.postMessage({
+      type: 'leaderboardStart',
+      view,
+      page,
+      requestId
+    });
+
+    const result = await managers.apiClient.getLeaderboardSkills(view, page);
+
+    webviewLike.webview.postMessage({
+      type: 'leaderboardResults',
+      view,
+      page: result.page,
+      total: result.total,
+      hasMore: result.hasMore,
+      data: result.skills,
+      requestId
+    });
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    webviewLike.webview.postMessage({
+      type: 'leaderboardError',
+      view,
+      page,
+      error: errorMessage,
+      requestId
+    });
   }
 }
 
@@ -328,7 +497,25 @@ async function performInstallation(
     const agentLabels = agents.join(', ');
     progress.report({ increment: 70, message: `Installing to ${scopeLabel} (${agentLabels})...` });
 
-    await managers.skillManager.installSkill(tempDir, agents, scope);
+    const parsedSource = parseSource(normalizedRepositoryUrl);
+    const sourceType = parsedSource.type === 'github' || parsedSource.type === 'gitlab' || parsedSource.type === 'git'
+      ? parsedSource.type
+      : 'git';
+    const ownerRepo = parsedSource.type === 'github'
+      ? `${parsedSource.owner}/${parsedSource.repo}`
+      : parsedSource.type === 'gitlab'
+        ? parsedSource.repoPath
+        : undefined;
+
+    await managers.skillManager.installSkill(tempDir, agents, scope, {
+      sourceType,
+      sourceUrl: normalizedRepositoryUrl,
+      repository: normalizedRepositoryUrl,
+      ownerRepo,
+      sourceRef: parsedSource.type === 'github' || parsedSource.type === 'gitlab' ? parsedSource.ref : undefined,
+      skillPath: skillPath ? `${skillPath}/SKILL.md` : 'SKILL.md',
+      skillId: skill.skillId
+    });
 
     progress.report({ increment: 90, message: 'Cleaning up...' });
 
@@ -346,10 +533,11 @@ async function handleUpdate(
   webviewLike: WebviewLike,
   _context: vscode.ExtensionContext,
   managers: { skillManager: SkillManager },
-  skill: SkillSearchResult,
+  skill: Skill | SkillSearchResult,
   agents: string[] = []
 ) {
   try {
+    let updated = false;
     await vscode.window.withProgress({
       location: vscode.ProgressLocation.Notification,
       title: `Updating ${skill.name}`,
@@ -357,10 +545,15 @@ async function handleUpdate(
     }, async (progress) => {
       progress.report({ increment: 0, message: 'Updating...' });
 
-      await managers.skillManager.updateSkill(skill, agents);
+      updated = await managers.skillManager.updateSkill(skill, agents);
 
       progress.report({ increment: 100, message: 'Complete' });
     });
+
+    if (!updated) {
+      vscode.window.showInformationMessage(`${skill.name} is already up to date.`);
+      return;
+    }
 
     vscode.window.showInformationMessage(`${skill.name} updated successfully!`);
 
@@ -406,10 +599,11 @@ async function handleViewSkill(
   _webviewLike: WebviewLike,
   _context: vscode.ExtensionContext,
   managers: { skillCache: SkillCache; apiClient: APIClient },
-  skill: any
+  skill: any,
+  openMode?: 'preview' | 'direct'
 ) {
   try {
-    await SkillDetailProvider.show(skill, managers);
+    await SkillDetailProvider.show(skill, managers, { openMode });
   } catch (error) {
     console.error(`[handleViewSkill] Error:`, error);
     vscode.window.showErrorMessage(`Failed to view skill: ${error}`);

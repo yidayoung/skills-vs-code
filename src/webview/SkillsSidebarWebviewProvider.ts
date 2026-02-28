@@ -4,6 +4,7 @@ import { SkillManager } from '../managers/SkillManager';
 import { APIClient } from '../managers/APIClient';
 import { SkillCache } from '../managers/SkillCache';
 import { UserPreferences } from '../managers/UserPreferences';
+import { SkillAPIConfig } from '../types';
 
 /**
  * 侧边栏 WebView Provider
@@ -26,15 +27,7 @@ export class SkillsSidebarWebviewProvider implements vscode.WebviewViewProvider 
     private readonly _extensionUri: vscode.Uri,
     private readonly _context: vscode.ExtensionContext
   ) {
-    // Get API URLs from configuration
-    const apiUrls = vscode.workspace.getConfiguration('skills').get('apiUrls', [
-      {
-        url: 'https://skills.sh',
-        enabled: true,
-        name: 'Skills.sh',
-        priority: 100
-      }
-    ]);
+    const apiUrls = this.getApiUrlsFromConfig();
 
     // Initialize managers
     this.managers = {
@@ -46,6 +39,20 @@ export class SkillsSidebarWebviewProvider implements vscode.WebviewViewProvider 
       skillCache: new SkillCache(_context),
       userPreferences: new UserPreferences(_context)
     };
+
+    this._disposables.push(
+      vscode.workspace.onDidChangeConfiguration((event) => {
+        if (event.affectsConfiguration('skills.apiUrls')) {
+          this.rebuildApiClient();
+          if (this._view) {
+            this._view.webview.postMessage({
+              type: 'marketConfigs',
+              data: this.getApiUrlsFromConfig()
+            });
+          }
+        }
+      })
+    );
   }
 
   /**
@@ -107,6 +114,21 @@ export class SkillsSidebarWebviewProvider implements vscode.WebviewViewProvider 
     if (this._view) {
       this._view.webview.postMessage(message);
     }
+  }
+
+  private getApiUrlsFromConfig(): SkillAPIConfig[] {
+    return vscode.workspace.getConfiguration('skills').get<SkillAPIConfig[]>('apiUrls', [
+      {
+        url: 'https://skills.sh',
+        enabled: true,
+        name: 'Skills.sh',
+        priority: 100
+      }
+    ]);
+  }
+
+  private rebuildApiClient(): void {
+    this.managers.apiClient = new APIClient(this.getApiUrlsFromConfig(), this._context);
   }
 
   /**

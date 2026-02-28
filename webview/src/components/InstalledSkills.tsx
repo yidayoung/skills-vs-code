@@ -10,8 +10,10 @@ interface InstalledSkill {
   name: string;
   description: string;
   source?: {
-    type: 'local';
-    skillMdPath: string;
+    type: 'local' | 'remote';
+    skillMdPath?: string;
+    repository?: string;
+    sourceUrl?: string;
     localPath?: string;
   };
   repository?: string;
@@ -22,6 +24,7 @@ interface InstalledSkill {
 export const InstalledSkills: React.FC = () => {
   const [skills, setSkills] = useState<InstalledSkill[]>([]);
   const [loading, setLoading] = useState(true);
+  const [checkingUpdates, setCheckingUpdates] = useState(false);
   const [showGlobal, setShowGlobal] = useState(true); // 默认显示全局
 
   useEffect(() => {
@@ -34,6 +37,14 @@ export const InstalledSkills: React.FC = () => {
       if (message.type === 'installedSkills') {
         setSkills(message.data || []);
         setLoading(false);
+        setCheckingUpdates(false);
+      } else if (message.type === 'skillsUpdateStatus') {
+        const status = message.data?.status;
+        if (status === 'checking') {
+          setCheckingUpdates(true);
+        } else if (status === 'done' || status === 'error') {
+          setCheckingUpdates(false);
+        }
       }
     };
 
@@ -41,7 +52,21 @@ export const InstalledSkills: React.FC = () => {
     return () => window.removeEventListener('message', handleMessage);
   }, []);
 
+  useEffect(() => {
+    setCheckingUpdates(false);
+  }, [showGlobal]);
+
   const handleUpdate = (skill: InstalledSkill) => {
+    const agents = skill.installedVersions.map(v => v.agent);
+    vscode.postMessage({
+      type: 'update',
+      skill,
+      agents
+    });
+  };
+
+  const handleReinstall = (skill: InstalledSkill) => {
+    // Reuse update pipeline for installed skills; backend source metadata decides actual fetch/install.
     const agents = skill.installedVersions.map(v => v.agent);
     vscode.postMessage({
       type: 'update',
@@ -62,6 +87,11 @@ export const InstalledSkills: React.FC = () => {
     });
   };
 
+  const handleCheckUpdates = () => {
+    setCheckingUpdates(true);
+    vscode.postMessage({ type: 'checkInstalledSkillUpdates' });
+  };
+
   // 根据选择过滤技能
   const filteredSkills = React.useMemo(() => {
     return skills.filter(skill => {
@@ -74,6 +104,11 @@ export const InstalledSkills: React.FC = () => {
       }
     });
   }, [skills, showGlobal]);
+
+  const updatableCount = React.useMemo(
+    () => filteredSkills.filter(skill => skill.hasUpdate).length,
+    [filteredSkills]
+  );
 
   if (loading) {
     return (
@@ -112,13 +147,29 @@ export const InstalledSkills: React.FC = () => {
       {/* Scope Toggle */}
       <div className="scope-toggle-container">
         <span className="scope-label">{t('installed.scope.global')}</span>
-        <button
-          className={`toggle-switch ${showGlobal ? 'on' : 'off'}`}
-          onClick={() => setShowGlobal(!showGlobal)}
-          aria-label={t('installed.scope.toggle')}
-        >
-          <span className="toggle-slider"/>
-        </button>
+        <div className="scope-actions">
+          <button
+            className={`check-updates-button ${checkingUpdates ? 'is-loading' : ''}`}
+            onClick={handleCheckUpdates}
+            disabled={checkingUpdates}
+            title={checkingUpdates ? t('installed.checking') : t('installed.checkUpdates')}
+          >
+            <span className={`codicon ${checkingUpdates ? 'codicon-loading codicon-modifier-spin' : 'codicon-sync'}`} />
+            <span className="check-updates-label">
+              {checkingUpdates ? t('installed.checking') : t('installed.checkUpdates')}
+            </span>
+            {updatableCount > 0 && (
+              <span className="check-updates-count">{updatableCount}</span>
+            )}
+          </button>
+          <button
+            className={`toggle-switch ${showGlobal ? 'on' : 'off'}`}
+            onClick={() => setShowGlobal(!showGlobal)}
+            aria-label={t('installed.scope.toggle')}
+          >
+            <span className="toggle-slider"/>
+          </button>
+        </div>
       </div>
 
       {/* Skills List */}
@@ -126,6 +177,9 @@ export const InstalledSkills: React.FC = () => {
         {filteredSkills.map(skill => {
           // 获取第一个安装版本的信息用于显示
           const firstVersion = skill.installedVersions[0];
+          const canReinstall = skill.source?.type === 'remote'
+            && Boolean(skill.source?.sourceUrl || skill.source?.repository);
+
           return (
             <SkillCard
               key={skill.id}
@@ -138,6 +192,7 @@ export const InstalledSkills: React.FC = () => {
               scope={firstVersion?.scope || 'project'}
               installed={true}
               hasUpdate={skill.hasUpdate}
+              onInstall={canReinstall ? () => handleReinstall(skill) : undefined}
               onUpdate={() => handleUpdate(skill)}
               onRemove={() => handleRemove(skill)}
             />

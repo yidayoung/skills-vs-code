@@ -92,6 +92,121 @@ suite('SkillDetailProvider Tests Suite', () => {
     await vscode.commands.executeCommand('workbench.action.closeAllEditors');
   });
 
+  test('should open installed remote skill from local SKILL.md path', async () => {
+    const skillName = 'test-installed-remote-skill';
+    const skillContent = `# ${skillName}\n\nInstalled from remote but should open local file.`;
+    const skillMdPath = path.join(tempDir, 'remote-installed-SKILL.md');
+
+    await fs.writeFile(skillMdPath, skillContent);
+
+    const installedRemoteSkill = {
+      id: skillName,
+      name: skillName,
+      description: 'Installed remote skill',
+      source: {
+        type: 'remote' as const,
+        repository: 'https://github.com/example/skill-repo',
+        skillMdPath
+      },
+      hasUpdate: false
+    };
+
+    await SkillDetailProvider.show(installedRemoteSkill, { skillCache, apiClient }, { openMode: 'direct' });
+
+    const activeEditor = vscode.window.activeTextEditor;
+    assert.ok(activeEditor, '应该打开一个文本编辑器');
+    assert.strictEqual(
+      activeEditor.document.uri.fsPath,
+      skillMdPath,
+      '已安装的远程技能应该直接打开本地 SKILL.md'
+    );
+
+    const documentContent = activeEditor.document.getText();
+    assert.strictEqual(documentContent, skillContent, '内容应该匹配本地文件');
+
+    await vscode.commands.executeCommand('workbench.action.closeAllEditors');
+  });
+
+  test('should open local skill file directly without markdown preview command in direct mode', async () => {
+    const skillName = 'test-local-direct-open';
+    const skillContent = `# ${skillName}\n\nOpen directly in text editor.`;
+    const skillMdPath = path.join(tempDir, `${skillName}.md`);
+    await fs.writeFile(skillMdPath, skillContent);
+
+    const localSkill = {
+      id: skillName,
+      name: skillName,
+      description: 'Local direct-open test skill',
+      source: {
+        type: 'local' as const,
+        skillMdPath
+      },
+      hasUpdate: false
+    };
+
+    const originalExecuteCommand = vscode.commands.executeCommand;
+    let markdownPreviewCalled = false;
+
+    (vscode.commands as any).executeCommand = async (command: string, ...args: any[]) => {
+      if (command === 'markdown.showPreview') {
+        markdownPreviewCalled = true;
+      }
+      return originalExecuteCommand.call(vscode.commands, command as any, ...args);
+    };
+
+    try {
+      await SkillDetailProvider.show(localSkill, { skillCache, apiClient }, { openMode: 'direct' });
+
+      const activeEditor = vscode.window.activeTextEditor;
+      assert.ok(activeEditor, '应该打开一个文本编辑器');
+      assert.strictEqual(
+        activeEditor.document.uri.fsPath,
+        skillMdPath,
+        '应该直接打开本地文档'
+      );
+      assert.strictEqual(markdownPreviewCalled, false, '本地技能不应触发 markdown.showPreview');
+    } finally {
+      (vscode.commands as any).executeCommand = originalExecuteCommand;
+      await vscode.commands.executeCommand('workbench.action.closeAllEditors');
+    }
+  });
+
+  test('should request markdown preview for local skill in preview mode', async () => {
+    const skillName = 'test-local-preview-open';
+    const skillContent = `# ${skillName}\n\nOpen in markdown preview.`;
+    const skillMdPath = path.join(tempDir, `${skillName}.md`);
+    await fs.writeFile(skillMdPath, skillContent);
+
+    const localSkill = {
+      id: skillName,
+      name: skillName,
+      description: 'Local preview-open test skill',
+      source: {
+        type: 'local' as const,
+        skillMdPath
+      },
+      hasUpdate: false
+    };
+
+    const originalExecuteCommand = vscode.commands.executeCommand;
+    let markdownPreviewCalled = false;
+
+    (vscode.commands as any).executeCommand = async (command: string, ...args: any[]) => {
+      if (command === 'markdown.showPreview') {
+        markdownPreviewCalled = true;
+      }
+      return originalExecuteCommand.call(vscode.commands, command as any, ...args);
+    };
+
+    try {
+      await SkillDetailProvider.show(localSkill, { skillCache, apiClient }, { openMode: 'preview' });
+      assert.strictEqual(markdownPreviewCalled, true, '预览模式应触发 markdown.showPreview');
+    } finally {
+      (vscode.commands as any).executeCommand = originalExecuteCommand;
+      await vscode.commands.executeCommand('workbench.action.closeAllEditors');
+    }
+  });
+
   test('should fetch remote skill when cache misses', async function() {
     this.timeout(10000); // 网络请求可能需要更长时间
 

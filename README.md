@@ -56,12 +56,16 @@ Install **Agent Skills Manager Pro** from the VS Code Marketplace.
 
 | Setting | Description | Default |
 | --- | --- | --- |
-| `skills.apiUrls` | Marketplace base URL(s) without path. The extension always appends `/api/search`. | `[{ "url": "https://skills.sh", "enabled": true, "name": "Skills.sh", "priority": 100 }]` |
+| `skills.apiUrls` | Marketplace base URL(s) without path. The extension appends fixed API paths (for example `/api/search`, `/api/skills/all-time/{page}`). | `[{ "url": "https://skills.sh", "enabled": true, "name": "Skills.sh", "priority": 100 }]` |
 | `skills.defaultAgents` | Default target agents for install operations. | `["claude-code"]` |
 | `skills.defaultScope` | Default install scope. | `"global"` |
 | `skills.cacheMaxSize` | Max local cache size (MB) for downloaded docs. | `50` |
 | `skills.cacheExpiryDays` | Cache expiry days for downloaded docs. | `7` |
 | `skills.skipInstallPrompts` | Install directly with defaults without prompt flow. | `false` |
+
+## API Documentation
+
+- Marketplace API spec: [docs/api/api.md](./docs/api/api.md)
 
 ## Commands
 

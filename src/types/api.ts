@@ -24,6 +24,15 @@ export interface SkillSearchResponse {
   page?: number;
 }
 
+export type LeaderboardView = 'all-time' | 'trending' | 'hot';
+
+export interface SkillLeaderboardResponse {
+  skills: SkillSearchResult[];
+  total: number;
+  page: number;
+  hasMore: boolean;
+}
+
 /**
  * A skill from marketplace search results
  */

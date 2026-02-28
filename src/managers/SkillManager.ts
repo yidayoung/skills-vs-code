@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
 import * as fs from 'fs/promises';
+import { createHash } from 'crypto';
 import { homedir } from 'os';
 import { Skill, SkillSearchResult } from '../types';
 import { getSupportedAgents, getAgentSkillsDir, detectInstalledAgents } from '../utils/agents';
@@ -10,15 +11,40 @@ import { cloneRepo, cleanupTempDir } from '../utils/git';
 
 const AGENTS_DIR = '.agents';
 const SKILLS_SUBDIR = 'skills';
+const SOURCE_METADATA_FILE = '.skill-source.json';
+
+interface SkillSourceMetadata {
+  sourceType: 'github' | 'gitlab' | 'git';
+  sourceUrl: string;
+  repository: string;
+  ownerRepo?: string;
+  skillPath: string;
+  skillId?: string;
+  sourceRef?: string;
+  installedHash?: string;
+  lastRemoteHash?: string;
+  skillFolderHash?: string;
+  installedAt: string;
+  updatedAt: string;
+}
 
 /**
  * Manages skill operations (install, list, update, remove)
  */
 export class SkillManager {
+  private static debugChannel: vscode.OutputChannel | null = null;
+
   constructor(
     private workspaceRoot: string | undefined,
     _globalStoragePath: string
   ) {}
+
+  private debug(message: string): void {
+    if (!SkillManager.debugChannel) {
+      SkillManager.debugChannel = vscode.window.createOutputChannel('Skills Update Debug');
+    }
+    SkillManager.debugChannel.appendLine(`[${new Date().toISOString()}] ${message}`);
+  }
 
   /**
    * List all installed skills across agents
@@ -95,7 +121,13 @@ export class SkillManager {
         const parsedSkill = await parseSkillMd(skillMdPath);
         if (!parsedSkill) continue;
 
+        const sourceMetadata = await this.readSkillSourceMetadata(skillDir);
         const scopeKey = global ? 'global' : 'project';
+        const hasPendingUpdate = Boolean(
+          sourceMetadata?.installedHash &&
+          sourceMetadata?.lastRemoteHash &&
+          sourceMetadata.installedHash !== sourceMetadata.lastRemoteHash
+        );
         const skillKey = `${scopeKey}:${parsedSkill.name}`;
 
         // Create or update skill in map
@@ -113,23 +145,57 @@ export class SkillManager {
               });
             }
           }
+
+          // Keep remote source metadata when available.
+          if (sourceMetadata) {
+            existing.source = {
+              type: 'remote',
+              repository: sourceMetadata.repository,
+              sourceUrl: sourceMetadata.sourceUrl,
+              sourceType: sourceMetadata.sourceType,
+              ownerRepo: sourceMetadata.ownerRepo,
+              skillPath: sourceMetadata.skillPath,
+              skillId: sourceMetadata.skillId,
+              sourceRef: sourceMetadata.sourceRef,
+              installedHash: sourceMetadata.installedHash,
+              lastRemoteHash: sourceMetadata.lastRemoteHash,
+              skillFolderHash: sourceMetadata.skillFolderHash,
+              skillMdPath
+            };
+            existing.hasUpdate = hasPendingUpdate;
+          }
         } else {
           skillsMap.set(skillKey, {
             id: parsedSkill.name,
             name: parsedSkill.name,
             description: parsedSkill.description,
-            source: {
-              type: 'local',
-              skillMdPath: skillMdPath,
-              localPath: parsedSkill.path
-            },
+            source: sourceMetadata
+              ? {
+                type: 'remote',
+                repository: sourceMetadata.repository,
+                sourceUrl: sourceMetadata.sourceUrl,
+                sourceType: sourceMetadata.sourceType,
+                ownerRepo: sourceMetadata.ownerRepo,
+                skillPath: sourceMetadata.skillPath,
+                skillId: sourceMetadata.skillId,
+                sourceRef: sourceMetadata.sourceRef,
+                installedHash: sourceMetadata.installedHash,
+                lastRemoteHash: sourceMetadata.lastRemoteHash,
+                skillFolderHash: sourceMetadata.skillFolderHash,
+                skillMdPath
+              }
+              : {
+                type: 'local',
+                skillMdPath: skillMdPath,
+                localPath: parsedSkill.path
+              },
             installedVersions: agentIds.map(agentId => ({
               agent: agentId,
               scope: scopeKey,
               path: skillDir,
               installMethod: 'symlink'
             })),
-            hasUpdate: false
+            hasUpdate: hasPendingUpdate
           });
         }
       }
@@ -154,7 +220,8 @@ export class SkillManager {
   async installSkill(
     source: string,
     agents: string[],
-    scope: 'project' | 'global'
+    scope: 'project' | 'global',
+    sourceMetadata?: Partial<SkillSourceMetadata>
   ): Promise<void> {
     const cwd = this.workspaceRoot || process.cwd();
 
@@ -162,6 +229,7 @@ export class SkillManager {
     const parsedSource = parseSource(source);
 
     let skillPath: string;
+    let installMetadata: Partial<SkillSourceMetadata> | undefined = sourceMetadata;
 
     // 根据 source 类型获取技能路径
     if (parsedSource.type === 'local') {
@@ -170,6 +238,32 @@ export class SkillManager {
     } else {
       // 远程仓库 - 需要克隆
       const repoUrl = parsedSource.url;
+      const ownerRepo = parsedSource.type === 'github'
+        ? `${parsedSource.owner}/${parsedSource.repo}`
+        : parsedSource.type === 'gitlab'
+          ? parsedSource.repoPath
+          : undefined;
+      const sourceRef = parsedSource.type === 'github' || parsedSource.type === 'gitlab'
+        ? parsedSource.ref
+        : undefined;
+      const sourceSubpath = parsedSource.type === 'github' || parsedSource.type === 'gitlab'
+        ? parsedSource.subpath
+        : undefined;
+
+      const sourceType: SkillSourceMetadata['sourceType'] =
+        parsedSource.type === 'github' || parsedSource.type === 'gitlab' || parsedSource.type === 'git'
+          ? parsedSource.type
+          : 'git';
+
+      installMetadata = {
+        sourceType,
+        sourceUrl: repoUrl,
+        repository: repoUrl,
+        ownerRepo,
+        sourceRef,
+        skillPath: sourceSubpath ? `${sourceSubpath}/SKILL.md` : 'SKILL.md',
+        ...sourceMetadata
+      };
 
       let tempDir: string | null = null;
       try {
@@ -185,7 +279,7 @@ export class SkillManager {
         }
 
         // 执行安装
-        await this.installFromPath(skillPath, agents, scope, cwd);
+        await this.installFromPath(skillPath, agents, scope, cwd, installMetadata, tempDir || undefined);
 
         // 清理临时目录
         if (tempDir) {
@@ -203,7 +297,7 @@ export class SkillManager {
     }
 
     // 本地安装
-    await this.installFromPath(skillPath, agents, scope, cwd);
+    await this.installFromPath(skillPath, agents, scope, cwd, installMetadata);
   }
 
   /**
@@ -213,7 +307,9 @@ export class SkillManager {
     skillPath: string,
     agents: string[],
     scope: 'project' | 'global',
-    cwd: string
+    cwd: string,
+    sourceMetadata?: Partial<SkillSourceMetadata>,
+    sourceRootPath?: string
   ): Promise<void> {
     // Parse the skill to get its metadata
     const skillMdPath = path.join(skillPath, 'SKILL.md');
@@ -273,7 +369,14 @@ export class SkillManager {
         // Sort by name
         foundSkills.sort((a, b) => a.name.localeCompare(b.name));
 
-        // Ask user which skill to install
+        if (foundSkills.length === 1) {
+          // Single discovered skill should install directly without prompting.
+          const selectedPath = foundSkills[0].path;
+          const nextMetadata = this.withResolvedSkillPath(sourceMetadata, selectedPath, sourceRootPath || skillPath);
+          return this.installFromPath(selectedPath, agents, scope, cwd, nextMetadata, sourceRootPath || skillPath);
+        }
+
+        // Ask user which skill to install when multiple skills are discovered.
         const selected = await vscode.window.showQuickPick(
           foundSkills.map(s => ({
             label: s.name,
@@ -293,7 +396,15 @@ export class SkillManager {
         const selectedSkill = foundSkills.find(s => s.name === selected.label);
         if (selectedSkill) {
           // Recursively call installFromPath with the sub-skill path
-          return this.installFromPath(selectedSkill.path, agents, scope, cwd);
+          const nextMetadata = this.withResolvedSkillPath(sourceMetadata, selectedSkill.path, sourceRootPath || skillPath);
+          return this.installFromPath(
+            selectedSkill.path,
+            agents,
+            scope,
+            cwd,
+            nextMetadata,
+            sourceRootPath || skillPath
+          );
         }
       }
 
@@ -334,6 +445,31 @@ export class SkillManager {
     // Copy skill files to canonical directory
     await this.copyDirectory(skillPath, canonicalDir);
 
+    // Persist source metadata for update checks when this skill is installed from remote.
+    if (sourceMetadata?.sourceType && sourceMetadata.sourceUrl && sourceMetadata.repository) {
+      const now = new Date().toISOString();
+      const installedHash = await this.computeDirectoryHash(canonicalDir);
+      const lastRemoteHash =
+        sourceMetadata.lastRemoteHash ||
+        sourceMetadata.skillFolderHash ||
+        installedHash;
+      const metadata: SkillSourceMetadata = {
+        sourceType: sourceMetadata.sourceType,
+        sourceUrl: sourceMetadata.sourceUrl,
+        repository: sourceMetadata.repository,
+        ownerRepo: sourceMetadata.ownerRepo,
+        sourceRef: sourceMetadata.sourceRef,
+        skillPath: sourceMetadata.skillPath || 'SKILL.md',
+        skillId: sourceMetadata.skillId,
+        installedHash,
+        lastRemoteHash,
+        skillFolderHash: lastRemoteHash,
+        installedAt: sourceMetadata.installedAt || now,
+        updatedAt: now
+      };
+      await this.writeSkillSourceMetadata(canonicalDir, metadata);
+    }
+
     // Create symlinks for each agent
     for (const agentId of agents) {
       const agent = getSupportedAgents().find(a => a.id === agentId);
@@ -361,20 +497,144 @@ export class SkillManager {
   }
 
   /**
-   * Check for updates (placeholder - will be implemented with git support)
+   * Check for updates for installed skills.
+   * Supports generic git sources tracked via .skill-source.json metadata.
    */
   async checkUpdates(skills: Skill[]): Promise<Skill[]> {
-    // For now, return skills without updates
-    // Git-based update checking will be implemented later
-    return skills.map(skill => ({ ...skill, hasUpdate: false }));
+    this.debug(`checkUpdates start: skills=${skills.length}`);
+    const results = await Promise.all(
+      skills.map(async (skill) => {
+        try {
+          this.debug(`checkUpdates skill=${skill.name} sourceType=${skill.source?.type || 'unknown'}`);
+          const source = await this.resolveSkillSourceMetadata(skill);
+          if (!source) {
+            this.debug(`checkUpdates skill=${skill.name} skipped: no source metadata`);
+            return { ...skill, hasUpdate: false };
+          }
+
+          const latestHash = await this.computeRemoteSkillFolderHash(source);
+
+          if (!latestHash) {
+            this.debug(`checkUpdates skill=${skill.name} skipped: latestHash unavailable`);
+            return { ...skill, hasUpdate: false };
+          }
+
+          let currentHash = source.installedHash || source.skillFolderHash;
+          if (!currentHash) {
+            const localSkillPath = skill.installedVersions?.[0]?.path;
+            if (localSkillPath) {
+              currentHash = await this.computeDirectoryHash(localSkillPath);
+            }
+          }
+
+          const hasUpdate = currentHash ? latestHash !== currentHash : false;
+          const localSkillPath = skill.installedVersions?.[0]?.path;
+          if (localSkillPath) {
+            await this.writeSkillSourceMetadata(localSkillPath, {
+              ...source,
+              installedHash: currentHash,
+              lastRemoteHash: latestHash,
+              skillFolderHash: latestHash,
+              updatedAt: new Date().toISOString()
+            });
+          }
+          this.debug(
+            `checkUpdates skill=${skill.name} sourceUrl=${source.sourceUrl} ` +
+            `skillPath=${source.skillPath} latestHash=${latestHash} currentHash=${currentHash || 'none'} ` +
+            `hasUpdate=${hasUpdate}`
+          );
+
+          return {
+            ...skill,
+            latestVersion: latestHash,
+            hasUpdate
+          };
+        } catch {
+          this.debug(`checkUpdates skill=${skill.name} failed: unexpected error`);
+          return { ...skill, hasUpdate: false };
+        }
+      })
+    );
+
+    this.debug('checkUpdates complete');
+    return results;
   }
 
   /**
-   * Update a skill (placeholder)
+   * Update a skill from its tracked source metadata.
+   * Returns true when an update was applied; false when already up to date.
    */
-  async updateSkill(_skill: Skill | SkillSearchResult, _agents: string[]): Promise<void> {
-    // Git-based update will be implemented later
-    vscode.window.showInformationMessage('Update functionality will be implemented with git support');
+  async updateSkill(skill: Skill | SkillSearchResult, agents: string[]): Promise<boolean> {
+    const installedSkill = skill as Skill;
+    const installedVersions = installedSkill.installedVersions || [];
+
+    if (installedVersions.length === 0) {
+      throw new Error('Cannot update skill without installation metadata');
+    }
+
+    const source = await this.resolveSkillSourceMetadata(installedSkill);
+    if (!source) {
+      throw new Error('This skill has no tracked remote source metadata');
+    }
+    this.debug(`updateSkill start: skill=${installedSkill.name} sourceUrl=${source.sourceUrl} skillPath=${source.skillPath}`);
+
+    if (!source.sourceUrl) {
+      throw new Error('This skill has no remote source URL');
+    }
+
+    const latestHash = await this.computeRemoteSkillFolderHash(source);
+
+    if (!latestHash) {
+      this.debug(`updateSkill skill=${installedSkill.name} failed: latestHash unavailable`);
+      throw new Error('Failed to check latest skill version from remote git repository');
+    }
+
+    let currentHash = source.installedHash || source.skillFolderHash;
+    if (!currentHash) {
+      const localSkillPath = installedVersions[0]?.path;
+      if (localSkillPath) {
+        currentHash = await this.computeDirectoryHash(localSkillPath);
+      }
+    }
+
+    if (currentHash && latestHash === currentHash) {
+      this.debug(`updateSkill skill=${installedSkill.name} no-op: latestHash matches currentHash (${latestHash})`);
+      return false;
+    }
+
+    const scope = installedVersions[0]?.scope || 'project';
+    const targetAgents = Array.from(new Set(
+      (agents && agents.length > 0)
+        ? agents
+        : installedVersions.map(v => v.agent)
+    ));
+
+    let tempDir: string | null = null;
+    try {
+      tempDir = await cloneRepo(source.sourceUrl, source.sourceRef);
+      const repoFolder = this.getSkillFolderFromSkillPath(source.skillPath);
+      const sourcePath = repoFolder ? path.join(tempDir, repoFolder) : tempDir;
+
+      await this.installFromPath(
+        sourcePath,
+        targetAgents,
+        scope,
+        this.workspaceRoot || process.cwd(),
+        {
+          ...source,
+          lastRemoteHash: latestHash,
+          skillFolderHash: latestHash
+        },
+        tempDir || undefined
+      );
+      this.debug(`updateSkill skill=${installedSkill.name} updated: latestHash=${latestHash} scope=${scope}`);
+    } finally {
+      if (tempDir) {
+        await cleanupTempDir(tempDir).catch(() => {});
+      }
+    }
+
+    return true;
   }
 
   /**
@@ -508,6 +768,219 @@ export class SkillManager {
     }
   }
 
+  private async readSkillSourceMetadata(skillDir: string): Promise<SkillSourceMetadata | null> {
+    try {
+      const filePath = path.join(skillDir, SOURCE_METADATA_FILE);
+      const content = await fs.readFile(filePath, 'utf-8');
+      const parsed = JSON.parse(content) as SkillSourceMetadata;
+
+      if (!parsed.sourceType || !parsed.sourceUrl || !parsed.repository || !parsed.skillPath) {
+        return null;
+      }
+
+      if (!parsed.skillId) {
+        parsed.skillId = this.extractSkillIdFromSkillPath(parsed.skillPath);
+      }
+
+      return parsed;
+    } catch {
+      return null;
+    }
+  }
+
+  private async writeSkillSourceMetadata(
+    skillDir: string,
+    metadata: SkillSourceMetadata
+  ): Promise<void> {
+    const filePath = path.join(skillDir, SOURCE_METADATA_FILE);
+    await fs.writeFile(filePath, JSON.stringify(metadata, null, 2), 'utf-8');
+  }
+
+  private async resolveSkillSourceMetadata(skill: Skill): Promise<SkillSourceMetadata | null> {
+    const installedPath = skill.installedVersions?.[0]?.path;
+    const existing = installedPath ? await this.readSkillSourceMetadata(installedPath) : null;
+
+    if (
+      skill.source.type === 'remote' &&
+      skill.source.sourceType &&
+      skill.source.sourceUrl &&
+      skill.source.repository &&
+      skill.source.skillPath
+    ) {
+      return {
+        sourceType: skill.source.sourceType,
+        sourceUrl: skill.source.sourceUrl,
+        repository: skill.source.repository,
+        ownerRepo: skill.source.ownerRepo,
+        skillPath: skill.source.skillPath,
+        skillId: skill.source.skillId || this.extractSkillIdFromSkillPath(skill.source.skillPath),
+        sourceRef: skill.source.sourceRef,
+        installedHash: skill.source.installedHash || existing?.installedHash,
+        lastRemoteHash: skill.source.lastRemoteHash || existing?.lastRemoteHash,
+        skillFolderHash: skill.source.skillFolderHash || existing?.skillFolderHash,
+        installedAt: existing?.installedAt || new Date().toISOString(),
+        updatedAt: existing?.updatedAt || new Date().toISOString()
+      };
+    }
+
+    return existing;
+  }
+
+  private getSkillFolderFromSkillPath(skillPath: string): string {
+    if (!skillPath) {
+      return '';
+    }
+
+    const normalized = skillPath.replace(/\\/g, '/');
+    if (normalized === 'SKILL.md') {
+      return '';
+    }
+
+    if (normalized.endsWith('/SKILL.md')) {
+      return normalized.slice(0, -9);
+    }
+
+    return normalized;
+  }
+
+  private extractSkillIdFromSkillPath(skillPath?: string): string | undefined {
+    if (!skillPath) {
+      return undefined;
+    }
+
+    const normalized = skillPath.replace(/\\/g, '/').trim();
+    const withoutSkillFile = normalized.replace(/\/?SKILL\.md$/i, '').replace(/^\/+|\/+$/g, '');
+    if (!withoutSkillFile || withoutSkillFile === '.') {
+      return undefined;
+    }
+
+    const withoutSkillsPrefix = withoutSkillFile.startsWith('skills/')
+      ? withoutSkillFile.slice('skills/'.length)
+      : withoutSkillFile;
+
+    const skillId = withoutSkillsPrefix.trim();
+    return skillId.length > 0 ? skillId : undefined;
+  }
+
+  private getGitHubToken(): string | undefined {
+    const configToken = vscode.workspace.getConfiguration('skills').get<string>('githubToken');
+    if (configToken && configToken.trim()) {
+      return configToken.trim();
+    }
+
+    return process.env.GITHUB_TOKEN || process.env.GH_TOKEN || undefined;
+  }
+
+  private async computeRemoteSkillFolderHash(source: SkillSourceMetadata): Promise<string | null> {
+    let tempDir: string | null = null;
+    try {
+      this.debug(`computeRemoteHash clone start: url=${source.sourceUrl} ref=${source.sourceRef || 'default'}`);
+      tempDir = await cloneRepo(source.sourceUrl, source.sourceRef);
+      const repoFolder = this.getSkillFolderFromSkillPath(source.skillPath);
+      const sourcePath = repoFolder ? path.join(tempDir, repoFolder) : tempDir;
+      await fs.access(sourcePath);
+      const hash = await this.computeDirectoryHash(sourcePath);
+      this.debug(`computeRemoteHash success: path=${source.skillPath} hash=${hash}`);
+      return hash;
+    } catch (error) {
+      this.debug(`computeRemoteHash failed: url=${source.sourceUrl} path=${source.skillPath} error=${String(error)}`);
+      return null;
+    } finally {
+      if (tempDir) {
+        await cleanupTempDir(tempDir).catch(() => {});
+      }
+    }
+  }
+
+  private async computeDirectoryHash(dir: string): Promise<string> {
+    const hash = createHash('sha256');
+
+    const walk = async (currentDir: string, baseDir: string): Promise<void> => {
+      const entries = await fs.readdir(currentDir, { withFileTypes: true });
+      entries.sort((a, b) => a.name.localeCompare(b.name));
+
+      for (const entry of entries) {
+        if (entry.name === '.git' || entry.name === SOURCE_METADATA_FILE) {
+          continue;
+        }
+
+        const fullPath = path.join(currentDir, entry.name);
+        const relativePath = path.relative(baseDir, fullPath).replace(/\\/g, '/');
+
+        if (entry.isDirectory()) {
+          hash.update(`dir:${relativePath}\n`);
+          await walk(fullPath, baseDir);
+        } else if (entry.isFile()) {
+          hash.update(`file:${relativePath}\n`);
+          const content = await fs.readFile(fullPath);
+          hash.update(content);
+          hash.update('\n');
+        }
+      }
+    };
+
+    await walk(dir, dir);
+    return hash.digest('hex');
+  }
+
+  private async fetchGitHubFolderHash(
+    ownerRepo: string,
+    skillPath: string,
+    preferredBranch?: string
+  ): Promise<string | null> {
+    let folderPath = skillPath.replace(/\\/g, '/');
+    if (folderPath.endsWith('/SKILL.md')) {
+      folderPath = folderPath.slice(0, -9);
+    } else if (folderPath === 'SKILL.md') {
+      folderPath = '';
+    }
+
+    const branches = preferredBranch
+      ? [preferredBranch, 'main', 'master']
+      : ['main', 'master'];
+    const token = this.getGitHubToken();
+
+    for (const branch of branches) {
+      try {
+        const response = await fetch(
+          `https://api.github.com/repos/${ownerRepo}/git/trees/${branch}?recursive=1`,
+          {
+            headers: {
+              'Accept': 'application/vnd.github.v3+json',
+              'User-Agent': 'VSCode-Skills-Extension/1.0',
+              ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+            }
+          }
+        );
+
+        if (!response.ok) {
+          continue;
+        }
+
+        const data = await response.json() as {
+          sha: string;
+          tree: Array<{ path: string; type: string; sha: string }>;
+        };
+
+        if (!folderPath) {
+          return data.sha;
+        }
+
+        const folderEntry = data.tree.find(
+          (entry) => entry.type === 'tree' && entry.path === folderPath
+        );
+
+        if (folderEntry) {
+          return folderEntry.sha;
+        }
+      } catch {
+        continue;
+      }
+    }
+
+    return null;
+  }
+
   private async copyDirectory(src: string, dest: string): Promise<void> {
     await fs.mkdir(dest, { recursive: true });
     const entries = await fs.readdir(src, { withFileTypes: true });
@@ -526,5 +999,21 @@ export class SkillManager {
         await fs.copyFile(srcPath, destPath);
       }
     }
+  }
+
+  private withResolvedSkillPath(
+    sourceMetadata: Partial<SkillSourceMetadata> | undefined,
+    selectedSkillPath: string,
+    rootPath: string
+  ): Partial<SkillSourceMetadata> | undefined {
+    if (!sourceMetadata) {
+      return sourceMetadata;
+    }
+    const relative = path.relative(rootPath, selectedSkillPath).replace(/\\/g, '/').replace(/^\/+|\/+$/g, '');
+    const skillPath = relative ? `${relative}/SKILL.md` : 'SKILL.md';
+    return {
+      ...sourceMetadata,
+      skillPath
+    };
   }
 }

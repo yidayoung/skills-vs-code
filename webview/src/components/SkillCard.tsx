@@ -11,11 +11,13 @@ export const SkillCard: React.FC<SkillCardProps> = ({
   agentType,
   scope,
   installed = false,
+  marketInstalled = false,
   hasUpdate = false,
   repository,
   skillMdUrl,
   source,
   stars,
+  installs,
   updatedAt,
   marketName,
   onInstall,
@@ -40,30 +42,43 @@ export const SkillCard: React.FC<SkillCardProps> = ({
   const marketTagConfig = isValidMarketName && !installed
     ? getMarketColorConfig(trimmedMarketName)
     : null;
+  const hasDescription = typeof description === 'string' && description.trim().length > 0;
+  const hasInstalls = typeof installs === 'number' && installs >= 0;
+  const formatInstalls = (count: number): string => {
+    if (count >= 1_000_000) return `${(count / 1_000_000).toFixed(1).replace(/\.0$/, '')}M`;
+    if (count >= 1_000) return `${(count / 1_000).toFixed(1).replace(/\.0$/, '')}K`;
+    return count.toLocaleString();
+  };
 
   // IDE 标签配置（已安装时使用）
   const ideTagConfig = installed && agentType !== 'universal'
     ? tagConfig
     : null;
 
+  const postViewSkill = (openMode: 'preview' | 'direct') => {
+    vscode.postMessage({
+      type: 'viewSkill',
+      openMode,
+      skill: {
+        id,
+        name,
+        description,
+        repository,
+        skillMdUrl,
+        source,
+        agentType,
+        scope
+      }
+    });
+  };
+
   const handleCardClick = () => {
     if (onViewDetails) {
       onViewDetails();
-    } else {
-      vscode.postMessage({
-        type: 'viewSkill',
-        skill: {
-          id,
-          name,
-          description,
-          repository,
-          skillMdUrl,
-          source,
-          agentType,
-          scope
-        }
-      });
+      return;
     }
+    // Card click keeps markdown preview behavior.
+    postViewSkill('preview');
   };
 
   const handleMenuClick = (e: React.MouseEvent) => {
@@ -79,6 +94,9 @@ export const SkillCard: React.FC<SkillCardProps> = ({
       case 'install':
         onInstall?.();
         break;
+      case 'reinstall':
+        onInstall?.();
+        break;
       case 'remove':
         onRemove?.();
         break;
@@ -86,14 +104,15 @@ export const SkillCard: React.FC<SkillCardProps> = ({
         onUpdate?.();
         break;
       case 'viewDetails':
-        handleCardClick();
+        // "Open Documentation" action should open raw file directly.
+        postViewSkill('direct');
         break;
     }
   };
 
   return (
     <div
-      className={`skill-card ${scope} ${isHovered ? 'hovered' : ''}`}
+      className={`skill-card ${scope} ${marketInstalled ? 'installed' : ''} ${hasUpdate ? 'has-update' : ''} ${isHovered ? 'hovered' : ''}`}
       onClick={handleCardClick}
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => {
@@ -131,6 +150,15 @@ export const SkillCard: React.FC<SkillCardProps> = ({
 
           {/* Skill Name */}
           <h3 className="skill-name">{name}</h3>
+          {marketInstalled && (
+            <span className="badge installed-badge">{t('card.installed')}</span>
+          )}
+          {installed && hasUpdate && (
+            <span className="update-pill" title={t('card.updateAvailable')}>
+              <span className="codicon codicon-arrow-up" />
+              {t('card.updateAvailable')}
+            </span>
+          )}
         </div>
 
         {/* Three-dot Menu (visible on hover) */}
@@ -158,6 +186,14 @@ export const SkillCard: React.FC<SkillCardProps> = ({
                     >
                       {t('card.menu.openDoc')}
                     </div>
+                    {onInstall && (
+                      <div
+                        className="menu-item primary"
+                        onClick={(e) => handleAction('reinstall', e)}
+                      >
+                        {t('card.menu.reinstall')}
+                      </div>
+                    )}
                     {hasUpdate && (
                       <div
                         className="menu-item"
@@ -176,12 +212,14 @@ export const SkillCard: React.FC<SkillCardProps> = ({
                   </>
                 ) : (
                   <>
-                    <div
-                      className="menu-item primary"
-                      onClick={(e) => handleAction('install', e)}
-                    >
-                      {t('card.menu.install')}
-                    </div>
+                    {onInstall && (
+                      <div
+                        className="menu-item primary"
+                        onClick={(e) => handleAction(marketInstalled ? 'reinstall' : 'install', e)}
+                      >
+                        {marketInstalled ? t('card.menu.reinstall') : t('card.menu.install')}
+                      </div>
+                    )}
                     {repository && (
                       <div
                         className="menu-item"
@@ -205,7 +243,14 @@ export const SkillCard: React.FC<SkillCardProps> = ({
       </div>
 
       {/* Description (2-line clamp) */}
-      <p className="skill-description">{description}</p>
+      {hasDescription && (
+        <p className="skill-description">{description}</p>
+      )}
+      {hasInstalls && (
+        <div className="skill-installs">
+          {formatInstalls(installs)} {t('card.installs')}
+        </div>
+      )}
     </div>
   );
 };

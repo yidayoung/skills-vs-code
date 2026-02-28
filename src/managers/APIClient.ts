@@ -3,7 +3,7 @@ import * as http from 'http';
 import * as url from 'url';
 import * as vscode from 'vscode';
 import * as fs from 'fs/promises';
-import { SkillSearchResult, SkillAPIConfig, APISkillData } from '../types';
+import { SkillSearchResult, SkillAPIConfig, APISkillData, LeaderboardView, SkillLeaderboardResponse } from '../types';
 import { SkillCache } from './SkillCache';
 import { cloneRepo, cleanupTempDir } from '../utils/git';
 import { discoverSkillsInPath } from '../utils/skills';
@@ -15,6 +15,7 @@ const API_TIMEOUT_MS = 10000; // 10 seconds
 const GITHUB_API_BASE = 'https://api.github.com';
 const GITHUB_RAW_BASE = 'https://raw.githubusercontent.com';
 const API_SEARCH_ENDPOINT = '/api/search';
+const API_LEADERBOARD_ENDPOINT = '/api/skills';
 const SEARCH_PARAM_QUERY = 'q';
 const SEARCH_PARAM_LIMIT = 'limit';
 
@@ -45,6 +46,86 @@ export class APIClient {
       .flatMap(r => r.value);
 
     return this.deduplicateSkills(allSkills);
+  }
+
+  async getLeaderboardSkills(
+    view: LeaderboardView,
+    page: number = 0
+  ): Promise<SkillLeaderboardResponse> {
+    const enabledConfigs = this.configs
+      .filter(c => c.enabled)
+      .sort((a, b) => (b.priority || 0) - (a.priority || 0));
+
+    const results = await Promise.allSettled(
+      enabledConfigs.map(config => this.fetchLeaderboardFromAPI(config, view, page))
+    );
+
+    const fulfilled = results
+      .filter((result): result is PromiseFulfilledResult<SkillLeaderboardResponse> => result.status === 'fulfilled')
+      .map(result => result.value);
+
+    const mergedSkills = this.deduplicateSkills(
+      fulfilled.flatMap(result => result.skills)
+    );
+
+    return {
+      skills: mergedSkills,
+      total: fulfilled.length > 0
+        ? Math.max(...fulfilled.map(result => result.total), mergedSkills.length)
+        : 0,
+      page,
+      hasMore: fulfilled.some(result => result.hasMore)
+    };
+  }
+
+  async testMarketConfig(config: SkillAPIConfig): Promise<{
+    searchOk: boolean;
+    leaderboardOk: boolean;
+    searchError?: string;
+    leaderboardError?: string;
+  }> {
+    const parsedBase = new url.URL(config.url);
+    const baseOrigin = parsedBase.origin;
+
+    const searchUrl = new url.URL(`${baseOrigin}${API_SEARCH_ENDPOINT}`);
+    searchUrl.searchParams.set(SEARCH_PARAM_QUERY, 'test');
+    searchUrl.searchParams.set(SEARCH_PARAM_LIMIT, '1');
+
+    const leaderboardUrl = `${baseOrigin}${API_LEADERBOARD_ENDPOINT}/all-time/0`;
+
+    const result: {
+      searchOk: boolean;
+      leaderboardOk: boolean;
+      searchError?: string;
+      leaderboardError?: string;
+    } = {
+      searchOk: false,
+      leaderboardOk: false
+    };
+
+    try {
+      const searchData = await this.makeHttpsRequest(searchUrl.toString());
+      result.searchOk = Array.isArray(searchData?.skills) || Array.isArray(searchData);
+      if (!result.searchOk) {
+        result.searchError = 'Invalid search response shape';
+      }
+    } catch (error) {
+      result.searchOk = false;
+      result.searchError = error instanceof Error ? error.message : String(error);
+    }
+
+    try {
+      const leaderboardData = await this.makeHttpsRequest(leaderboardUrl);
+      result.leaderboardOk = Array.isArray(leaderboardData?.skills);
+      if (!result.leaderboardOk) {
+        result.leaderboardError = 'Invalid leaderboard response shape';
+      }
+    } catch (error) {
+      result.leaderboardOk = false;
+      result.leaderboardError = error instanceof Error ? error.message : String(error);
+    }
+
+    return result;
   }
 
   /**
@@ -125,6 +206,44 @@ export class APIClient {
     }
   }
 
+  private async fetchLeaderboardFromAPI(
+    config: SkillAPIConfig,
+    view: LeaderboardView,
+    page: number
+  ): Promise<SkillLeaderboardResponse> {
+    try {
+      let marketName: string | undefined;
+      try {
+        marketName = config.name || new URL(config.url).hostname;
+      } catch {
+        marketName = config.name;
+      }
+
+      const parsedBase = new url.URL(config.url);
+      const apiUrl = new url.URL(`${parsedBase.origin}${API_LEADERBOARD_ENDPOINT}/${view}/${page}`);
+      const responseData = await this.makeHttpsRequest(apiUrl.toString());
+
+      if (!responseData || typeof responseData !== 'object') {
+        return { skills: [], total: 0, page, hasMore: false };
+      }
+
+      const rawSkills = Array.isArray(responseData.skills) ? responseData.skills : [];
+      const normalizedSkills = rawSkills.map((skill: APISkillData) =>
+        this.normalizeSkillResult(skill, config.url, marketName)
+      );
+
+      return {
+        skills: normalizedSkills,
+        total: typeof responseData.total === 'number' ? responseData.total : normalizedSkills.length,
+        page: typeof responseData.page === 'number' ? responseData.page : page,
+        hasMore: Boolean(responseData.hasMore)
+      };
+    } catch (error) {
+      console.error(`Failed to fetch leaderboard from ${config.url}:`, error);
+      return { skills: [], total: 0, page, hasMore: false };
+    }
+  }
+
   private normalizeSkillResult(skill: APISkillData, _apiUrl: string, marketName?: string): SkillSearchResult {
     // Handle skills.sh API format: { id, name, installs, source }
     if (skill.source) {
@@ -133,13 +252,14 @@ export class APIClient {
 
     // Handle generic API format (already has full URLs)
     const baseId = skill.id || skill.repository || `${skill.name || 'unknown'}`;
+    const resolvedSkillId = this.resolveSkillId(skill);
 
     return {
-      id: this.buildUniqueResultId(baseId, skill.skillId),
+      id: this.buildUniqueResultId(baseId, resolvedSkillId),
       name: skill.name || 'Unknown',
       description: skill.description || '',
       repository: skill.repository || skill.repo || '',
-      skillId: skill.skillId,  // Pass through skillId for multi-skill repos
+      skillId: resolvedSkillId,
       skillMdUrl: skill.skillMdUrl || skill.skill_md_url || skill.readme_url || '',
       version: skill.version || skill.commit || skill.tag,
       stars: skill.stars || skill.star_count || 0,
@@ -185,6 +305,8 @@ export class APIClient {
     let repository = '';
     let skillMdUrl = '';
     let id = skill.id || source;
+    let sourceBaseId = '';
+    let sourceSubpath = '';
 
     // 根据解析结果构建 repository URL 和 skill.md URL
     switch (parsed.type) {
@@ -193,14 +315,18 @@ export class APIClient {
         // 构建原始内容 URL
         const path = parsed.subpath ? `${parsed.subpath}/` : '';
         skillMdUrl = `https://raw.githubusercontent.com/${parsed.owner}/${parsed.repo}/HEAD/${path}SKILL.md`;
-        id = `${parsed.owner}/${parsed.repo}`;
+        sourceBaseId = `${parsed.owner}/${parsed.repo}`;
+        sourceSubpath = parsed.subpath || '';
+        id = sourceBaseId;
         break;
       }
       case 'gitlab': {
         repository = parsed.url;
         const path = parsed.subpath ? `${parsed.subpath}/` : '';
         skillMdUrl = `https://${parsed.hostname}/${parsed.repoPath}/-/raw/HEAD/${path}SKILL.md`;
-        id = `${parsed.hostname}/${parsed.repoPath}`;
+        sourceBaseId = `${parsed.hostname}/${parsed.repoPath}`;
+        sourceSubpath = parsed.subpath || '';
+        id = sourceBaseId;
         break;
       }
       case 'local': {
@@ -238,14 +364,14 @@ export class APIClient {
         break;
     }
 
+    const resolvedSkillId = this.resolveSkillId(skill, sourceBaseId, sourceSubpath);
+
     return {
-      id: this.buildUniqueResultId(id, skill.skillId),
+      id: this.buildUniqueResultId(id, resolvedSkillId),
       name: skill.name || 'Unknown',
-      description: skill.installs
-        ? `${this.formatInstalls(skill.installs)}`
-        : skill.description || 'A skill for AI coding assistants',
+      description: skill.description || '',
       repository,
-      skillId: skill.skillId,  // Pass through skillId for multi-skill repos
+      skillId: resolvedSkillId,
       skillMdUrl,
       version: undefined,
       stars: 0,
@@ -253,13 +379,6 @@ export class APIClient {
       updatedAt: undefined,
       marketName  // 添加 marketName 字段
     };
-  }
-
-  private formatInstalls(count: number): string {
-    if (!count || count <= 0) return '';
-    if (count >= 1_000_000) return `${(count / 1_000_000).toFixed(1).replace(/\.0$/, '')}M installs`;
-    if (count >= 1_000) return `${(count / 1_000).toFixed(1).replace(/\.0$/, '')}K installs`;
-    return `${count} install${count === 1 ? '' : 's'}`;
   }
 
   private makeHttpsRequest(urlString: string): Promise<any> {
@@ -355,6 +474,83 @@ export class APIClient {
       return baseId;
     }
     return `${baseId}#${skillId}`;
+  }
+
+  private resolveSkillId(skill: APISkillData, sourceBaseId?: string, sourceSubpath?: string): string | undefined {
+    const explicit = this.normalizeSkillIdValue(skill.skillId);
+    if (explicit) {
+      return explicit;
+    }
+
+    const fromSubpath = this.extractSkillIdFromPathLike(sourceSubpath);
+    if (fromSubpath) {
+      return fromSubpath;
+    }
+
+    const fromSource = this.extractSkillIdFromValueWithBase(skill.id, sourceBaseId)
+      || this.extractSkillIdFromPathLike(skill.id)
+      || this.extractSkillIdFromPathLike(skill.full_name)
+      || this.extractSkillIdFromPathLike(skill.repository)
+      || this.extractSkillIdFromPathLike(skill.repo);
+
+    return this.normalizeSkillIdValue(fromSource);
+  }
+
+  private normalizeSkillIdValue(value?: string): string | undefined {
+    const normalized = (value || '').trim().replace(/^\/+|\/+$/g, '');
+    return normalized.length > 0 ? normalized : undefined;
+  }
+
+  private extractSkillIdFromValueWithBase(value?: string, base?: string): string | undefined {
+    if (!value || !base) {
+      return undefined;
+    }
+    const normalizedValue = value.trim().replace(/^\/+|\/+$/g, '');
+    const normalizedBase = base.trim().replace(/^\/+|\/+$/g, '');
+    const prefix = `${normalizedBase}/`;
+    if (normalizedValue.startsWith(prefix)) {
+      return normalizedValue.slice(prefix.length);
+    }
+    return undefined;
+  }
+
+  private extractSkillIdFromPathLike(value?: string): string | undefined {
+    if (!value) {
+      return undefined;
+    }
+    let text = value.trim();
+    if (!text) {
+      return undefined;
+    }
+
+    if (text.includes('#')) {
+      const hashPart = text.split('#').pop();
+      return this.normalizeSkillIdValue(hashPart);
+    }
+
+    try {
+      const parsed = new URL(text);
+      text = parsed.pathname;
+    } catch {
+      // Keep original text when not a URL.
+    }
+
+    text = text.replace(/^\/+|\/+$/g, '');
+    if (!text) {
+      return undefined;
+    }
+
+    const segments = text.split('/').filter(Boolean);
+    const skillsIndex = segments.findIndex(seg => seg.toLowerCase() === 'skills');
+    if (skillsIndex >= 0 && skillsIndex < segments.length - 1) {
+      return this.normalizeSkillIdValue(segments.slice(skillsIndex + 1).join('/'));
+    }
+
+    if (segments.length >= 3) {
+      return this.normalizeSkillIdValue(segments.slice(2).join('/'));
+    }
+
+    return undefined;
   }
 
   private getDeduplicationKey(skill: SkillSearchResult): string {

@@ -22,7 +22,8 @@ export const TabContainer: React.FC<{
 
   const tabs: Tab[] = [
     { id: 'installed', label: t('tab.installed'), icon: 'extensions' },
-    { id: 'marketplace', label: t('tab.marketplace'), icon: 'search' }
+    { id: 'marketplace', label: t('tab.marketplace'), icon: 'search' },
+    { id: 'market-settings', label: t('tab.marketSettings'), icon: 'settings-gear' }
   ];
 
   return (

@@ -22,12 +22,15 @@ export interface Skill {
   source?: {
     type: 'local' | 'remote';
     repository?: string;
+    skillId?: string;
+    sourceUrl?: string;
     localPath?: string;
     skillMdPath: string;
   };
   installedVersions?: InstalledVersion[];
   hasUpdate?: boolean;
   stars?: number;
+  installs?: number;
   updatedAt?: string;
 }
 
@@ -53,12 +56,17 @@ export interface SkillCardProps {
   source?: {
     type: 'local' | 'remote';
     skillMdPath?: string;
+    skillId?: string;
+    sourceUrl?: string;
     localPath?: string;
   };
   stars?: number;
+  installs?: number;
   updatedAt?: string;
   /** Marketplace name (for uninstalled skills) */
   marketName?: string;
+  /** Whether marketplace skill is already installed locally */
+  marketInstalled?: boolean;
   onInstall?: () => void;
   onRemove?: () => void;
   onUpdate?: () => void;
